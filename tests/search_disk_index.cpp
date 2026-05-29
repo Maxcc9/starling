@@ -196,8 +196,10 @@ int search_disk_index(
   std::string recall_string = "Recall@" + std::to_string(recall_at);
   diskann::cout << std::setw(6) << "L" << std::setw(12) << "Beamwidth"
                 << std::setw(16) << "QPS" << std::setw(16) << "Mean Latency"
-                << std::setw(16) << "99.9 Latency" << std::setw(16)
-                << "Mean IOs" << std::setw(16) << "CPU (s)"
+                << std::setw(16) << "P50 Latency"
+                << std::setw(16) << "P99 Latency"
+                << std::setw(16) << "99.9 Latency"
+                << std::setw(16) << "Mean IOs" << std::setw(16) << "CPU (s)"
                 << std::setw(20) << "B4 Load In-Mem"
                 << std::setw(20) << "After Load Cache"
                 << std::setw(15) << "Peak Mem(MB)";
@@ -288,6 +290,14 @@ int search_disk_index(
         stats, query_num,
         [](const diskann::QueryStats& stats) { return stats.total_us; });
 
+    auto latency_50 = diskann::get_percentile_stats<float>(
+        stats, query_num, 0.50,
+        [](const diskann::QueryStats& stats) { return stats.total_us; });
+
+    auto latency_99 = diskann::get_percentile_stats<float>(
+        stats, query_num, 0.99,
+        [](const diskann::QueryStats& stats) { return stats.total_us; });
+
     auto latency_999 = diskann::get_percentile_stats<float>(
         stats, query_num, 0.999,
         [](const diskann::QueryStats& stats) { return stats.total_us; });
@@ -309,6 +319,8 @@ int search_disk_index(
 
     diskann::cout << std::setw(6) << L << std::setw(12) << optimized_beamwidth
                   << std::setw(16) << qps << std::setw(16) << mean_latency
+                  << std::setw(16) << latency_50
+                  << std::setw(16) << latency_99
                   << std::setw(16) << latency_999 << std::setw(16) << mean_ios
                   << std::setw(16) << mean_cpus
                   << std::setw(20) << load_mem
