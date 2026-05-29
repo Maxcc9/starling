@@ -13,8 +13,9 @@ risky.
 - [DATA_FORMATS.md](DATA_FORMATS.md): binary data, truthset, index, frequency,
   and partition file conventions.
 - [WORKFLOWS.md](WORKFLOWS.md): common benchmark and experiment flows.
+- [INDEX_STORAGE.md](INDEX_STORAGE.md): required location and naming convention
+  for generated index files.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md): current risks and sharp edges observed in
   this checkout.
 - [AI_MAINTENANCE_GUIDE.md](AI_MAINTENANCE_GUIDE.md): practical rules for future
   AI-assisted edits in this codebase.
-

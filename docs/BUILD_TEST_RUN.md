@@ -95,6 +95,10 @@ Usage:
 ./run_benchmark.sh [debug/release] [build/build_mem/freq/gp/search/sq] [knn/range]
 ```
 
+Generated benchmark index artifacts are written under
+`/mnt/starling_data/index` by default. See `INDEX_STORAGE.md` for the required
+layout and naming convention.
+
 Examples:
 
 ```bash
@@ -126,11 +130,13 @@ The CI benchmark config `scripts/config_ci.sh` uses these files.
 Build disk index:
 
 ```bash
+mkdir -p /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1
+
 build/tests/build_disk_index \
   --data_type float \
   --dist_fn l2 \
   --data_path tests_data/rand_float_10D_10K_norm1.0.bin \
-  --index_path_prefix /tmp/starling_float \
+  --index_path_prefix /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/starling_float_R16_L32_B0.00003_M1 \
   -R 16 -L 32 -B 0.00003 -M 1 -T 16
 ```
 
@@ -140,8 +146,8 @@ Search disk index:
 build/tests/search_disk_index \
   --data_type float \
   --dist_fn l2 \
-  --index_path_prefix /tmp/starling_float \
-  --disk_file_path /tmp/starling_float_disk.index \
+  --index_path_prefix /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/starling_float_R16_L32_B0.00003_M1 \
+  --disk_file_path /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/starling_float_R16_L32_B0.00003_M1_disk.index \
   --query_file tests_data/rand_float_10D_10K_norm1.0.bin \
   --gt_file tests_data/l2_rand_float_10D_10K_norm1.0_self_gt10 \
   --recall_at 5 \
@@ -149,7 +155,7 @@ build/tests/search_disk_index \
   -W 2 \
   --num_nodes_to_cache 0 \
   -T 16 \
-  --result_path /tmp/starling_res
+  --result_path /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/result/result
 ```
 
 Build memory index from generated sampled data prefix:
@@ -158,13 +164,13 @@ Build memory index from generated sampled data prefix:
 build/tests/build_memory_index \
   --data_type float \
   --dist_fn l2 \
-  --data_path /tmp/mem_sample_prefix \
-  --index_path_prefix /tmp/mem_index \
+  --data_path /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/samples/sample_rate_0.01/sample_rate_0.01 \
+  --index_path_prefix /mnt/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/memory/mem_R16_L32_A1.2/mem_R16_L32_A1.2_index \
   -R 16 -L 32 --alpha 1.2 -T 16
 ```
 
-`build_memory_index` expects `/tmp/mem_sample_prefix_data.bin` and
-`/tmp/mem_sample_prefix_ids.bin`.
+`build_memory_index` expects the selected data prefix to have matching
+`_data.bin` and `_ids.bin` files.
 
 ## Useful Validation Targets
 
@@ -177,4 +183,3 @@ Once the build is healthy:
 - Run `scripts/run_benchmark.sh release build` with `scripts/config_ci.sh`.
 - Run `scripts/run_benchmark.sh release search knn` for both beam and page
   search after graph partition output exists.
-

@@ -1,6 +1,7 @@
 #!/bin/bash
 
-SUMMARY_PATH=../indices/summary.log
+STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/starling_data/index}"
+SUMMARY_PATH="${STARLING_INDEX_ROOT}/summary.log"
 
 GREEN='\033[0;32m'
 NC='\033[0m'

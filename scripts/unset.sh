@@ -1,17 +1,29 @@
 #!/bin/bash
 source config_local.sh
 
-INDEX_PREFIX_PATH="${PREFIX}_M${M}_R${R}_L${BUILD_L}_B${B}/"
-MEM_SAMPLE_PATH="${INDEX_PREFIX_PATH}SAMPLE_RATE_${MEM_RAND_SAMPLING_RATE}/"
-MEM_INDEX_PATH="${INDEX_PREFIX_PATH}MEM_R_${MEM_R}_L_${MEM_BUILD_L}_ALPHA_${MEM_ALPHA}_MEM_USE_FREQ${MEM_USE_FREQ}/"
-GP_PATH="${INDEX_PREFIX_PATH}GP_TIMES_${GP_TIMES}_LOCK_${GP_LOCK_NUMS}_GP_USE_FREQ${GP_USE_FREQ}_CUT${GP_CUT}/"
-FREQ_PATH="${INDEX_PREFIX_PATH}FREQ/NQ_${FREQ_QUERY_CNT}_BM_${FREQ_BM}_L_${FREQ_L}_T_${FREQ_T}/"
+STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/starling_data/index}"
+INDEX_EXPERIMENT="${INDEX_EXPERIMENT:-${PREFIX}_starling}"
+INDEX_NAME="${INDEX_NAME:-${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}}"
+INDEX_DIR="${STARLING_INDEX_ROOT}/${INDEX_EXPERIMENT}/${INDEX_NAME}"
+INDEX_PREFIX_PATH="${INDEX_DIR}/${INDEX_NAME}"
+
+MEM_SAMPLE_NAME="sample_rate_${MEM_RAND_SAMPLING_RATE}"
+MEM_SAMPLE_DIR="${INDEX_DIR}/samples/${MEM_SAMPLE_NAME}"
+MEM_SAMPLE_PATH="${MEM_SAMPLE_DIR}/${MEM_SAMPLE_NAME}"
+MEM_INDEX_NAME="mem_R${MEM_R}_L${MEM_BUILD_L}_A${MEM_ALPHA}_freq${MEM_USE_FREQ}_rand${MEM_RAND_SAMPLING_RATE}_freq_rate${MEM_FREQ_USE_RATE}"
+MEM_INDEX_DIR="${INDEX_DIR}/memory/${MEM_INDEX_NAME}"
+MEM_INDEX_PATH="${MEM_INDEX_DIR}/${MEM_INDEX_NAME}"
+GP_NAME="gp_times${GP_TIMES}_lock${GP_LOCK_NUMS}_freq${GP_USE_FREQ}_cut${GP_CUT}"
+GP_DIR="${INDEX_DIR}/gp/${GP_NAME}"
+GP_PATH="${GP_DIR}/${GP_NAME}"
+FREQ_NAME="freq_nq${FREQ_QUERY_CNT}_bm${FREQ_BM}_L${FREQ_L}_T${FREQ_T}"
+FREQ_DIR="${INDEX_DIR}/freq/${FREQ_NAME}"
+FREQ_PATH="${FREQ_DIR}/${FREQ_NAME}"
 
 print_usage_and_exit(){
     echo "Usage: ./unset.sh [compile/index_file/gp/mem_index/freq/sample_file/index_dir/relayout] [release/debug]"
     exit -1;
 }
-cd ../indices
 case $1 in 
     compile)
         echo "remove all compiled file."
@@ -42,19 +54,19 @@ case $1 in
     ;;
     mem_index)
         echo "remove mem index dir."
-        rm -rf ${MEM_INDEX_PATH}
+        rm -rf ${MEM_INDEX_DIR}
     ;;
     freq)
         echo "remove freq dir."
-        rm -rf ${FREQ_PATH}
+        rm -rf ${FREQ_DIR}
     ;;
     sample_file)
         echo "remove sample data dir."
-        rm -rf ${MEM_SAMPLE_PATH}
+        rm -rf ${MEM_SAMPLE_DIR}
     ;;
     index_dir)
         echo "remove index file dir."
-        rm -rf ${INDEX_PREFIX_PATH}
+        rm -rf ${INDEX_DIR}
     ;;
     relayout)
         case $2 in
@@ -88,7 +100,7 @@ case $1 in
             cp $INDEX_FILE $OLD_INDEX_FILE
         fi
 
-        if [ ! -d ${GP_PATH} ]; then
+        if [ ! -d ${GP_DIR} ]; then
             echo "ERRO! no gp dir, maybe you should run './run_benchmark.sh release gp knn' first."
             exit 1;
         fi
@@ -98,12 +110,12 @@ case $1 in
             exit 1;
         fi
         echo ${EXE_PATH}
-        time ${EXE_PATH}/tests/utils/index_relayout ${OLD_INDEX_FILE} ${GP_PATH}_part.bin > ${GP_PATH}relayout.log
+        time ${EXE_PATH}/tests/utils/index_relayout ${OLD_INDEX_FILE} ${GP_PATH}_part.bin > "${GP_DIR}/relayout.log"
         cp ${GP_PATH}_part_tmp.index ${INDEX_PREFIX_PATH}_disk.index
         cp ${GP_PATH}_part.bin ${INDEX_PREFIX_PATH}_partition.bin
     ;;
     search)
-        echo rm ${INDEX_PREFIX_PATH}search
-        rm ${INDEX_PREFIX_PATH}search/*
+        echo rm "${INDEX_DIR}/search"
+        rm "${INDEX_DIR}"/search/*
     ;;
 esac

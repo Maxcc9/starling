@@ -2,6 +2,13 @@
 
 ## End-To-End KNN Experiment
 
+All generated index artifacts from `scripts/run_benchmark.sh` are written under
+`/mnt/starling_data/index` by default. The default index prefix is:
+
+```bash
+/mnt/starling_data/index/${PREFIX}_starling/${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}/${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}
+```
+
 1. Configure dataset and parameters.
 
 ```bash
@@ -230,4 +237,3 @@ build/tests/search_memory_index \
   --dynamic true \
   --tags true
 ```
-
