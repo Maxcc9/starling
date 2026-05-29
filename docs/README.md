@@ -15,6 +15,8 @@ risky.
 - [WORKFLOWS.md](WORKFLOWS.md): common benchmark and experiment flows.
 - [INDEX_STORAGE.md](INDEX_STORAGE.md): required location and naming convention
   for generated index files.
+- [DATASET_BENCHMARKS.md](DATASET_BENCHMARKS.md): dataset matrix and commands
+  for running Starling across the local DiskANN datasets.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md): current risks and sharp edges observed in
   this checkout.
 - [AI_MAINTENANCE_GUIDE.md](AI_MAINTENANCE_GUIDE.md): practical rules for future

@@ -57,6 +57,7 @@ BM_LIST=(4)
 T_LIST=(8)
 CACHE=0
 MEM_L=0 # non-zero to enable
+MEM_TOPK=10
 
 # Page Search
 USE_PAGE_SEARCH=1 # Set 0 for beam search, 1 for page search (default)

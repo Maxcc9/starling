@@ -1,6 +1,6 @@
 #!/bin/bash
 
-STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/starling_data/index}"
+STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/diskann_data/starling_data/index}"
 SUMMARY_PATH="${STARLING_INDEX_ROOT}/summary.log"
 
 GREEN='\033[0;32m'

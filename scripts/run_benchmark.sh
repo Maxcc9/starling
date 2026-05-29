@@ -3,11 +3,20 @@
 set -e
 # set -x
 
-source config_local.sh
+source "${STARLING_CONFIG:-config_local.sh}"
 
-STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/starling_data/index}"
+STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/diskann_data/starling_data/index}"
+DISK_PQ_BYTES="${DISK_PQ_BYTES:-0}"
+APPEND_REORDER_DATA="${APPEND_REORDER_DATA:-0}"
+INDEX_DISK_PQ_SUFFIX=""
+if [ "${DISK_PQ_BYTES}" != "0" ]; then
+  INDEX_DISK_PQ_SUFFIX="_DPQ${DISK_PQ_BYTES}"
+  if [ "${APPEND_REORDER_DATA}" = "1" ] || [ "${APPEND_REORDER_DATA}" = "true" ]; then
+    INDEX_DISK_PQ_SUFFIX="${INDEX_DISK_PQ_SUFFIX}_reorder"
+  fi
+fi
 INDEX_EXPERIMENT="${INDEX_EXPERIMENT:-${PREFIX}_starling}"
-INDEX_NAME="${INDEX_NAME:-${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}}"
+INDEX_NAME="${INDEX_NAME:-${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}${INDEX_DISK_PQ_SUFFIX}}"
 INDEX_DIR="${STARLING_INDEX_ROOT}/${INDEX_EXPERIMENT}/${INDEX_NAME}"
 INDEX_PREFIX_PATH="${INDEX_DIR}/${INDEX_NAME}"
 
@@ -65,6 +74,10 @@ case $2 in
   build)
     check_dir_and_make_if_absent "$INDEX_DIR"
     echo "Building disk index..."
+    APPEND_REORDER_FLAG=()
+    if [ "${APPEND_REORDER_DATA}" = "1" ] || [ "${APPEND_REORDER_DATA}" = "true" ]; then
+      APPEND_REORDER_FLAG=(--append_reorder_data)
+    fi
     time ${EXE_PATH}/tests/build_disk_index \
       --data_type $DATA_TYPE \
       --dist_fn $DIST_FN \
@@ -74,7 +87,9 @@ case $2 in
       -L $BUILD_L \
       -B $B \
       -M $M \
-      -T $BUILD_T > "${INDEX_DIR}/build.log"
+      -T $BUILD_T \
+      --PQ_disk_bytes "${DISK_PQ_BYTES}" \
+      "${APPEND_REORDER_FLAG[@]}" > "${INDEX_DIR}/build.log"
     cp ${INDEX_PREFIX_PATH}_disk.index ${INDEX_PREFIX_PATH}_disk_beam_search.index
   ;;
   sq)
