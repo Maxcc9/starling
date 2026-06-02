@@ -12,6 +12,7 @@ R=48
 BUILD_L=128
 M=32
 BUILD_T=8
+QUERY_PQ_BYTES="${QUERY_PQ_BYTES:-0}" # Set non-zero to explicitly fix query-time PQ bytes, e.g. 128 for qd128
 
 ##################
 #       SQ       #

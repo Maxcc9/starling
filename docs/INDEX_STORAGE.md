@@ -34,9 +34,16 @@ The benchmark script derives defaults as:
 ```bash
 STARLING_INDEX_ROOT=/mnt/diskann_data/starling_data/index
 INDEX_EXPERIMENT=${PREFIX}_starling
-INDEX_NAME=${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}${INDEX_DISK_PQ_SUFFIX}
+INDEX_NAME=${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}${INDEX_QUERY_PQ_SUFFIX}${INDEX_DISK_PQ_SUFFIX}
 INDEX_DIR=${STARLING_INDEX_ROOT}/${INDEX_EXPERIMENT}/${INDEX_NAME}
 INDEX_PREFIX_PATH=${INDEX_DIR}/${INDEX_NAME}
+```
+
+`INDEX_QUERY_PQ_SUFFIX` is empty by default. When `QUERY_PQ_BYTES` is non-zero,
+the scripts append:
+
+```bash
+_QPQ${QUERY_PQ_BYTES}
 ```
 
 `INDEX_DISK_PQ_SUFFIX` is empty by default. When `DISK_PQ_BYTES` is non-zero,

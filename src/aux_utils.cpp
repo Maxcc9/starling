@@ -958,7 +958,7 @@ namespace diskann {
       param_list.push_back(cur_param);
     }
     if (param_list.size() != 5 && param_list.size() != 6 &&
-        param_list.size() != 7) {
+        param_list.size() != 7 && param_list.size() != 8) {
       diskann::cout
           << "Correct usage of parameters is R (max degree) "
              "L (indexing list size, better if >= R)"
@@ -968,7 +968,8 @@ namespace diskann {
              "B' (PQ bytes for disk index: optional parameter for "
              "very large dimensional data)"
              "reorder (set true to include full precision in data file"
-             ": optional paramter, use only when using disk PQ"
+             ": optional paramter, use only when using disk PQ)"
+             "Q' (PQ bytes for query-time in-memory data: optional parameter)"
           << std::endl;
       return -1;
     }
@@ -988,7 +989,7 @@ namespace diskann {
     // if there is a 6th parameter, it means we compress the disk index
     // vectors also using PQ data (for very large dimensionality data). If the
     // provided parameter is 0, it means we store full vectors.
-    if (param_list.size() == 6 || param_list.size() == 7) {
+    if (param_list.size() >= 6) {
       disk_pq_dims = atoi(param_list[5].c_str());
       use_disk_pq = true;
       if (disk_pq_dims == 0)
@@ -996,7 +997,7 @@ namespace diskann {
     }
 
     bool reorder_data = false;
-    if (param_list.size() == 7) {
+    if (param_list.size() >= 7) {
       if (1 == atoi(param_list[6].c_str())) {
         reorder_data = true;
       }
@@ -1078,6 +1079,16 @@ namespace diskann {
     num_pq_chunks = num_pq_chunks > dim ? dim : num_pq_chunks;
     num_pq_chunks =
         num_pq_chunks > MAX_PQ_CHUNKS ? MAX_PQ_CHUNKS : num_pq_chunks;
+
+    if (param_list.size() >= 8) {
+      size_t explicit_query_pq_bytes = (size_t) atoi(param_list[7].c_str());
+      if (explicit_query_pq_bytes > 0) {
+        num_pq_chunks = explicit_query_pq_bytes;
+        num_pq_chunks = num_pq_chunks > dim ? dim : num_pq_chunks;
+        num_pq_chunks =
+            num_pq_chunks > MAX_PQ_CHUNKS ? MAX_PQ_CHUNKS : num_pq_chunks;
+      }
+    }
 
     diskann::cout << "Compressing " << dim << "-dimensional data into "
                   << num_pq_chunks << " bytes per vector." << std::endl;
