@@ -27,6 +27,43 @@ scripts/generate_starling_reports.py \
   --prefix starling_full_sift1m
 ```
 
+## Starling Feature Ablations
+
+Use feature ablations when comparing against DiskANN improvements. This avoids
+collapsing page search, memory navigation, and workload-aware frequency tuning
+into one overloaded "Starling" line.
+
+```bash
+cd /home/gt/research/starling/scripts
+./run_starling_feature_ablation.sh sift1m plan
+./run_starling_feature_ablation.sh sift1m prepare
+./run_starling_feature_ablation.sh sift1m search
+./run_starling_feature_ablation.sh sift1m reports
+```
+
+Feature lines:
+
+| Line | Meaning | Fairness |
+| --- | --- | --- |
+| `beam` | Original beam-search baseline. | General-purpose |
+| `page_only` | Page search with plain graph partition, no memory graph. | General-purpose |
+| `page_ratio` | `page_only` with `PS_USE_RATIO=0.5`. | General-purpose |
+| `page_random_mem` | Page search plus random memory graph. | General-purpose if memory budget is reported |
+| `page_freq_mem` | Page search plus frequency-selected memory graph. | Workload-aware |
+| `page_freq_gp` | Page search plus frequency-driven graph partition. | Workload-aware |
+| `page_freq_gp_random_mem` | Frequency GP plus random memory graph. | Workload-aware because GP uses frequency |
+| `page_freq_gp_freq_mem` | Frequency GP plus frequency memory graph. | Workload-aware full setting |
+
+Reports are written under:
+
+```text
+reports/sift1m_ablation/<feature_line>/
+reports/sift1m_ablation/analysis/
+```
+
+The combined analysis directory contains overlay Pareto plots across all
+feature lines.
+
 1. Configure dataset and parameters.
 
 ```bash
@@ -171,6 +208,7 @@ These parameters affect the disk index and require a new build when changed:
 | `B` | `-B`, `--search_DRAM_budget` | Search DRAM budget in GB. Indirectly determines the query-time PQ bytes per vector. |
 | `M` | `-M`, `--build_DRAM_budget` | Build DRAM budget in GB. Controls memory available while building. |
 | `BUILD_T` | `-T`, `--num_threads` | Build threads. |
+| `QUERY_PQ_BYTES` | `--PQ_search_bytes` | Explicit query-time PQ bytes per vector. `0` keeps the legacy behavior derived from `B`. Use this for fixed qd-style experiments. |
 | `DISK_PQ_BYTES` | `--PQ_disk_bytes` | Compresses vectors stored in the disk index to this many bytes. `0` stores full vectors. Needed for high-dimensional data that cannot fit one node in a 4KB sector. |
 | `APPEND_REORDER_DATA` | `--append_reorder_data` | Appends full-precision data for re-ranking when disk-PQ is enabled. Float data only. |
 | `DATA_TYPE` | `--data_type` | Dataset type: `float`, `uint8`, or `int8`. |
@@ -184,8 +222,13 @@ uncompressed.
 
 There is no CLI parameter named `QD` in this codebase. The closest controls are:
 
-- `B`: controls `<prefix>_pq_compressed.bin`, the query-time PQ vectors loaded
-  by `PQFlashIndex`. The code computes:
+- `QUERY_PQ_BYTES`: explicitly controls `<prefix>_pq_compressed.bin`, the
+  query-time PQ vectors loaded by `PQFlashIndex`. For example, on 128-dim
+  float `sift1m`, `QUERY_PQ_BYTES=128` is equivalent to qd128 and stores 128
+  bytes per vector instead of 512 full-precision bytes, a 4x byte compression.
+
+- `B`: when `QUERY_PQ_BYTES=0`, controls `<prefix>_pq_compressed.bin`
+  indirectly. The code computes:
 
   ```text
   pq_bytes_per_vector = floor(search_DRAM_budget_bytes / number_of_points)
@@ -194,16 +237,16 @@ There is no CLI parameter named `QD` in this codebase. The closest controls are:
   ```
 
   For example, on `sift1m` with `B=2`, this is capped by `DATA_DIM=128`, so
-  the query-time PQ file stores 128 bytes per vector.
+  the query-time PQ file stores 128 bytes per vector even without
+  `QUERY_PQ_BYTES`.
 
 - `DISK_PQ_BYTES`: controls optional compression of the vectors physically
   stored inside the disk index. This is independent of `B`. Use it for
   high-dimensional datasets such as `gist1m`.
 
-The source contains an unused helper that accepts a compression ratio, but
-`tests/build_disk_index.cpp` does not expose that path. To sweep a QD-style
-explicit query-time PQ size, add a new CLI/config parameter rather than relying
-on the current `B` indirection.
+Changing `QUERY_PQ_BYTES` requires rebuilding the disk index because it changes
+`<prefix>_pq_compressed.bin` and `<prefix>_pq_pivots.bin`. The generated index
+name includes `_QPQ${QUERY_PQ_BYTES}` when this setting is non-zero.
 
 ## Memory Navigation Graph Parameters
 
