@@ -99,6 +99,11 @@ Generated benchmark index artifacts are written under
 `/mnt/diskann_data/starling_data/index` by default. See `INDEX_STORAGE.md` for the required
 layout and naming convention.
 
+Search outputs are separated from index artifacts. Search logs, result files,
+CSV reports, and figures are written under this repository's `reports/`
+directory by default. Run direct CLI examples from the repository root when
+using relative `reports/...` paths.
+
 The main tunable script variables are documented in `WORKFLOWS.md`:
 
 - disk index build: `R`, `BUILD_L`, `B`, `M`, `BUILD_T`,
@@ -111,6 +116,7 @@ The main tunable script variables are documented in `WORKFLOWS.md`:
 Examples:
 
 ```bash
+cd /home/gt/research/starling/scripts
 ./run_benchmark.sh release build
 ./run_benchmark.sh release build_mem
 ./run_benchmark.sh release freq
@@ -170,6 +176,8 @@ compression. See `WORKFLOWS.md` for the exact distinction and formula.
 Search disk index:
 
 ```bash
+cd /home/gt/research/starling
+
 build/tests/search_disk_index \
   --data_type float \
   --dist_fn l2 \
@@ -182,7 +190,7 @@ build/tests/search_disk_index \
   -W 2 \
   --num_nodes_to_cache 0 \
   -T 16 \
-  --result_path /mnt/diskann_data/starling_data/index/manual/starling_float_R16_L32_B0.00003_M1/result/result
+  --result_path reports/manual/starling_float_R16_L32_B0.00003_M1/result/result
 ```
 
 Page search uses the same executable, with a page-relayout disk file and
@@ -203,7 +211,7 @@ release/tests/search_disk_index \
   -T 16 \
   --use_page_search 1 \
   --use_ratio 1.0 \
-  --result_path /mnt/diskann_data/starling_data/index/sift1m_starling/sift1m_R64_L100_B2_M2/result/result
+  --result_path reports/sift1m_starling/sift1m_R64_L100_B2_M2/result/result
 ```
 
 Build memory index from generated sampled data prefix:

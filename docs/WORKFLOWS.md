@@ -13,6 +13,20 @@ For running the standard local dataset set (`sift1m`, `deep1m`, `gist1m`,
 `text2image1m`, `sift100m`, `deep100m`, `spacev100m`), use
 `scripts/run_starling_suite.sh`; see `DATASET_BENCHMARKS.md`.
 
+Search logs, result files, CSV reports, and figures are written under the
+repository `reports/` directory. Override with `STARLING_REPORT_ROOT` only when
+needed.
+
+Generate analysis CSVs and Pareto figures from search logs with:
+
+```bash
+scripts/generate_starling_reports.py \
+  --report-dir reports/sift1m_starling/sift1m_R64_L100_B2_M2 \
+  --dataset sift1m \
+  --method Starling-full \
+  --prefix starling_full_sift1m
+```
+
 1. Configure dataset and parameters.
 
 ```bash

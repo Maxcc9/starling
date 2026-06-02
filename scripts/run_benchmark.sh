@@ -6,6 +6,8 @@ set -e
 source "${STARLING_CONFIG:-config_local.sh}"
 
 STARLING_INDEX_ROOT="${STARLING_INDEX_ROOT:-/mnt/diskann_data/starling_data/index}"
+STARLING_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STARLING_REPORT_ROOT="${STARLING_REPORT_ROOT:-${STARLING_PROJECT_ROOT}/reports}"
 DISK_PQ_BYTES="${DISK_PQ_BYTES:-0}"
 APPEND_REORDER_DATA="${APPEND_REORDER_DATA:-0}"
 INDEX_DISK_PQ_SUFFIX=""
@@ -19,6 +21,9 @@ INDEX_EXPERIMENT="${INDEX_EXPERIMENT:-${PREFIX}_starling}"
 INDEX_NAME="${INDEX_NAME:-${PREFIX}_R${R}_L${BUILD_L}_B${B}_M${M}${INDEX_DISK_PQ_SUFFIX}}"
 INDEX_DIR="${STARLING_INDEX_ROOT}/${INDEX_EXPERIMENT}/${INDEX_NAME}"
 INDEX_PREFIX_PATH="${INDEX_DIR}/${INDEX_NAME}"
+REPORT_DIR="${STARLING_REPORT_ROOT}/${INDEX_EXPERIMENT}/${INDEX_NAME}"
+SEARCH_LOG_DIR="${REPORT_DIR}/search"
+SEARCH_RESULT_DIR="${REPORT_DIR}/result"
 
 MEM_SAMPLE_NAME="sample_rate_${MEM_RAND_SAMPLING_RATE}"
 MEM_SAMPLE_DIR="${INDEX_DIR}/samples/${MEM_SAMPLE_NAME}"
@@ -32,8 +37,10 @@ GP_PATH="${GP_DIR}/${GP_NAME}"
 FREQ_NAME="freq_nq${FREQ_QUERY_CNT}_bm${FREQ_BM}_L${FREQ_L}_T${FREQ_T}"
 FREQ_DIR="${INDEX_DIR}/freq/${FREQ_NAME}"
 FREQ_PATH="${FREQ_DIR}/${FREQ_NAME}"
+FREQ_REPORT_DIR="${REPORT_DIR}/freq/${FREQ_NAME}"
+FREQ_RESULT_DIR="${FREQ_REPORT_DIR}/result"
 
-SUMMARY_FILE_PATH="${STARLING_INDEX_ROOT}/summary.log"
+SUMMARY_FILE_PATH="${STARLING_REPORT_ROOT}/summary.log"
 
 print_usage_and_exit() {
   echo "Usage: ./run_benchmark.sh [debug/release] [build/build_mem/freq/gp/search] [knn/range]"
@@ -68,6 +75,7 @@ make -j
 popd
 
 mkdir -p "$STARLING_INDEX_ROOT"
+mkdir -p "$STARLING_REPORT_ROOT"
 
 date
 case $2 in
@@ -124,7 +132,9 @@ case $2 in
   ;;
   freq)
     check_dir_and_make_if_absent ${FREQ_DIR}
-    FREQ_LOG="${FREQ_DIR}/freq.log"
+    mkdir -p "${FREQ_REPORT_DIR}"
+    mkdir -p "${FREQ_RESULT_DIR}"
+    FREQ_LOG="${FREQ_REPORT_DIR}/freq.log"
 
     DISK_FILE_PATH=${INDEX_PREFIX_PATH}_disk_beam_search.index
     if [ ! -f $DISK_FILE_PATH ]; then
@@ -141,7 +151,7 @@ case $2 in
               --expected_query_num $FREQ_QUERY_CNT \
               --gt_file $GT_FILE \
               -K $K \
-              --result_path ${FREQ_DIR}/result \
+              --result_path ${FREQ_RESULT_DIR}/result \
               --num_nodes_to_cache ${FREQ_CACHE} \
               -T $FREQ_T \
               -L $FREQ_L \
@@ -186,8 +196,8 @@ case $2 in
       echo "Disk index not found under $INDEX_DIR. Build it first?"
       exit 1
     fi
-    mkdir -p "${INDEX_DIR}/search"
-    mkdir -p "${INDEX_DIR}/result"
+    mkdir -p "${SEARCH_LOG_DIR}"
+    mkdir -p "${SEARCH_RESULT_DIR}"
 
     # choose the disk index file by settings
     DISK_FILE_PATH=${INDEX_PREFIX_PATH}_disk.index
@@ -214,7 +224,7 @@ case $2 in
         do
           for T in ${T_LIST[@]}
           do
-            SEARCH_LOG="${INDEX_DIR}/search/search_SQ${USE_SQ}_K${K}_CACHE${CACHE}_BW${BW}_T${T}_MEML${MEM_L}_MEMK${MEM_TOPK}_MEM_USE_FREQ${MEM_USE_FREQ}_PS${USE_PAGE_SEARCH}_USE_RATIO${PS_USE_RATIO}_GP_USE_FREQ${GP_USE_FREQ}_GP_LOCK_NUMS${GP_LOCK_NUMS}_GP_CUT${GP_CUT}.log"
+            SEARCH_LOG="${SEARCH_LOG_DIR}/search_SQ${USE_SQ}_K${K}_CACHE${CACHE}_BW${BW}_T${T}_MEML${MEM_L}_MEMK${MEM_TOPK}_MEM_USE_FREQ${MEM_USE_FREQ}_PS${USE_PAGE_SEARCH}_USE_RATIO${PS_USE_RATIO}_GP_USE_FREQ${GP_USE_FREQ}_GP_LOCK_NUMS${GP_LOCK_NUMS}_GP_CUT${GP_CUT}.log"
             echo "Searching... log file: ${SEARCH_LOG}"
             sync; echo 3 | sudo tee /proc/sys/vm/drop_caches; ${EXE_PATH}/tests/search_disk_index --data_type $DATA_TYPE \
               --dist_fn $DIST_FN \
@@ -222,7 +232,7 @@ case $2 in
               --query_file $QUERY_FILE \
               --gt_file $GT_FILE \
               -K $K \
-              --result_path "${INDEX_DIR}/result/result" \
+              --result_path "${SEARCH_RESULT_DIR}/result" \
               --num_nodes_to_cache $CACHE \
               -T $T \
               -L ${LS} \
@@ -242,7 +252,7 @@ case $2 in
         do
           for T in ${T_LIST[@]}
           do
-            SEARCH_LOG="${INDEX_DIR}/search/search_RADIUS${RADIUS}_CACHE${CACHE}_BW${BW}_T${T}_PS${USE_PAGE_SEARCH}_PS_RATIO${PS_USE_RATIO}_ITER_KNN${RS_ITER_KNN_TO_RANGE_SEARCH}_MEM_L${MEM_L}.log"
+            SEARCH_LOG="${SEARCH_LOG_DIR}/search_RADIUS${RADIUS}_CACHE${CACHE}_BW${BW}_T${T}_PS${USE_PAGE_SEARCH}_PS_RATIO${PS_USE_RATIO}_ITER_KNN${RS_ITER_KNN_TO_RANGE_SEARCH}_MEM_L${MEM_L}.log"
             echo "Searching... log file: ${SEARCH_LOG}"
             sync; echo 3 | sudo tee /proc/sys/vm/drop_caches; ${EXE_PATH}/tests/range_search_disk_index \
               --data_type $DATA_TYPE \

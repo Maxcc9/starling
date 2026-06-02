@@ -235,8 +235,9 @@ Representative outputs:
 /mnt/diskann_data/starling_data/index/sift1m_starling/sift1m_R64_L100_B2_M2/sift1m_R64_L100_B2_M2_disk.index
 /mnt/diskann_data/starling_data/index/sift1m_starling/sift1m_R64_L100_B2_M2/sift1m_R64_L100_B2_M2_disk_beam_search.index
 /mnt/diskann_data/starling_data/index/sift1m_starling/sift1m_R64_L100_B2_M2/sift1m_R64_L100_B2_M2_partition.bin
-/mnt/diskann_data/starling_data/index/sift1m_starling/sift1m_R64_L100_B2_M2/search/
-/mnt/diskann_data/starling_data/index/sift1m_starling/sift1m_R64_L100_B2_M2/result/
+reports/sift1m_starling/sift1m_R64_L100_B2_M2/search/
+reports/sift1m_starling/sift1m_R64_L100_B2_M2/result/
+reports/sift1m_starling/sift1m_R64_L100_B2_M2/analysis/
 ```
 
 ## Notes

@@ -9,6 +9,14 @@ All generated Starling index-related artifacts must be written under:
 Do not write generated index files into the repository, `../indices`, or `/tmp`
 except for short-lived manual experiments.
 
+Search outputs and analysis artifacts are not index artifacts. CSV, PNG, SVG,
+search logs, and result files should be written under the repository `reports/`
+directory instead:
+
+```bash
+reports/<experiment>/<index_name>/
+```
+
 ## Naming Convention
 
 The naming follows the structure already used by `/mnt/diskann_data/index`:
@@ -81,14 +89,24 @@ Benchmark sub-artifacts stay inside the same index directory:
 <index_dir>/samples/<sample_name>/
 <index_dir>/freq/<freq_name>/
 <index_dir>/gp/<gp_name>/
-<index_dir>/search/
-<index_dir>/result/
 ```
 
-The global benchmark summary is:
+Search outputs stay in the project:
+
+```text
+reports/<experiment>/<index_name>/freq/
+reports/<experiment>/<index_name>/search/
+reports/<experiment>/<index_name>/result/
+reports/<experiment>/<index_name>/analysis/
+```
+
+The `analysis/` files are generated from search logs with
+`scripts/generate_starling_reports.py`.
+
+The global benchmark summary is also written in the project:
 
 ```bash
-/mnt/diskann_data/starling_data/index/summary.log
+reports/summary.log
 ```
 
 ## Overrides
@@ -98,6 +116,7 @@ custom layout:
 
 ```bash
 STARLING_INDEX_ROOT=/mnt/diskann_data/starling_data/index
+STARLING_REPORT_ROOT=<repo>/reports
 INDEX_EXPERIMENT=<dataset_or_experiment_group>
 INDEX_NAME=<explicit_index_name>
 ```
