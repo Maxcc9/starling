@@ -17,6 +17,8 @@ risky.
   for generated index files.
 - [DATASET_BENCHMARKS.md](DATASET_BENCHMARKS.md): dataset matrix and commands
   for running Starling across the local DiskANN datasets.
+- [DISKANN_BEATS_STARLING.md](DISKANN_BEATS_STARLING.md): design notes for
+  improving DiskANN beam search until it can beat Starling page-search baselines.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md): current risks and sharp edges observed in
   this checkout.
 - [AI_MAINTENANCE_GUIDE.md](AI_MAINTENANCE_GUIDE.md): practical rules for future
