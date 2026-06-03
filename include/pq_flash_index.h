@@ -120,12 +120,14 @@ namespace diskann {
     DISKANN_DLLEXPORT void cached_beam_search(
         const T *query, const _u64 k_search, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width,
-        const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0);
+        const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0,
+        const float pfm_theta = 0.0f, const float divergence_k = 0.3f);
 
     DISKANN_DLLEXPORT void cached_beam_search(
         const T *query, const _u64 k_search, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,
-        const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0);
+        const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0,
+        const float pfm_theta = 0.0f, const float divergence_k = 0.3f);
 
     DISKANN_DLLEXPORT void generate_node_nbrs_freq(
         const std::string& freq_save_path,
@@ -138,7 +140,8 @@ namespace diskann {
     DISKANN_DLLEXPORT void page_search(
         const T *query, const _u64 k_search, const _u32 mem_L, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,
-        const bool use_reorder_data = false, const float use_ratio = 1.0f, QueryStats *stats = nullptr);
+        const bool use_reorder_data = false, const float use_ratio = 1.0f, QueryStats *stats = nullptr,
+        const float pfm_theta = 0.0f, const float divergence_k = 0.3f);
     DISKANN_DLLEXPORT void page_search_sq(
         const T *query, const _u64 k_search, const _u32 mem_L, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,

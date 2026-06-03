@@ -56,7 +56,7 @@ int search_disk_index(
     diskann::Metric& metric, const std::string& index_path_prefix,
     const std::string& mem_index_path,
     const std::string& result_output_prefix, const std::string& query_file,
-    const std::string& gt_file, 
+    const std::string& gt_file,
     const std::string& disk_file_path,
     const unsigned num_threads, const unsigned recall_at,
     const unsigned beamwidth, const unsigned num_nodes_to_cache,
@@ -65,7 +65,9 @@ int search_disk_index(
     const bool use_page_search=true,
     const float use_ratio=1.0,
     const bool use_reorder_data = false,
-    const bool use_sq = false) {
+    const bool use_sq = false,
+    const float pfm_theta = 0.0f,
+    const float divergence_k = 0.3f) {
   diskann::cout << "Search parameters: #threads: " << num_threads << ", ";
   if (beamwidth <= 0)
     diskann::cout << "beamwidth to be optimized for each L value" << std::flush;
@@ -261,7 +263,8 @@ int search_disk_index(
               query + (i * query_aligned_dim), recall_at, mem_L, L,
               query_result_ids_64.data() + (i * recall_at),
               query_result_dists[test_id].data() + (i * recall_at),
-              optimized_beamwidth, search_io_limit, use_reorder_data, use_ratio, stats + i);
+              optimized_beamwidth, search_io_limit, use_reorder_data, use_ratio, stats + i,
+              pfm_theta, divergence_k);
         }
       }
     } else {
@@ -275,7 +278,8 @@ int search_disk_index(
             query + (i * query_aligned_dim), recall_at, L,
             query_result_ids_64.data() + (i * recall_at),
             query_result_dists[test_id].data() + (i * recall_at),
-            optimized_beamwidth, search_io_limit, use_reorder_data, stats + i, mem_L);
+            optimized_beamwidth, search_io_limit, use_reorder_data, stats + i, mem_L,
+            pfm_theta, divergence_k);
       }
     }
     auto                          e = std::chrono::high_resolution_clock::now();
@@ -367,6 +371,8 @@ int main(int argc, char** argv) {
   bool                  use_page_search = true;
   float                 use_ratio = 1.0;
   bool use_sq = false;
+  float pfm_theta = 0.0f;
+  float divergence_k = 0.3f;
 
   po::options_description desc{"Arguments"};
   try {
@@ -426,6 +432,10 @@ int main(int argc, char** argv) {
                        "The path of the disk file (_disk.index in the original DiskANN)");
     desc.add_options()("mem_index_path", po::value<std::string>(&mem_index_path)->default_value(""),
                        "The prefix path of the mem_index");
+    desc.add_options()("pfm_theta", po::value<float>(&pfm_theta)->default_value(0.0f),
+                       "PFM early stop threshold (0=disabled). Suggested: 1.10-1.20. Beam search only.");
+    desc.add_options()("divergence_k", po::value<float>(&divergence_k)->default_value(0.3f),
+                       "DRA divergence-rate coefficient for PFM adaptive threshold. Suggested: 0.3-0.4.");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -489,19 +499,22 @@ int main(int argc, char** argv) {
                                       result_path_prefix, query_file, gt_file,
                                       disk_file_path,
                                       num_threads, K, W, num_nodes_to_cache,
-                                      search_io_limit, Lvec, mem_L, use_page_search, use_ratio, use_reorder_data, use_sq);
+                                      search_io_limit, Lvec, mem_L, use_page_search, use_ratio, use_reorder_data, use_sq,
+                                      pfm_theta, divergence_k);
     else if (data_type == std::string("int8"))
       return search_disk_index<int8_t>(metric, index_path_prefix,
                                        mem_index_path,
                                        result_path_prefix, query_file, gt_file,
                                        disk_file_path,
                                        num_threads, K, W, num_nodes_to_cache,
-                                       search_io_limit, Lvec, mem_L, use_page_search, use_ratio, use_reorder_data);
+                                       search_io_limit, Lvec, mem_L, use_page_search, use_ratio, use_reorder_data, false,
+                                       pfm_theta, divergence_k);
     else if (data_type == std::string("uint8"))
       return search_disk_index<uint8_t>(
           metric, index_path_prefix, mem_index_path, result_path_prefix, query_file, gt_file,
           disk_file_path, num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec, mem_L,
-          use_page_search, use_ratio, use_reorder_data);
+          use_page_search, use_ratio, use_reorder_data, false,
+          pfm_theta, divergence_k);
     else {
       std::cerr << "Unsupported data type. Use float or int8 or uint8"
                 << std::endl;

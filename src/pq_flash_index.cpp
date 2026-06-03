@@ -872,17 +872,20 @@ namespace diskann {
                                            const _u64  beam_width,
                                            const bool  use_reorder_data,
                                            QueryStats *stats,
-                                           const _u32 mem_L) {
+                                           const _u32 mem_L,
+                                           const float pfm_theta,
+                                           const float divergence_k) {
     cached_beam_search(query1, k_search, l_search, indices, distances,
                        beam_width, std::numeric_limits<_u32>::max(),
-                       use_reorder_data, stats, mem_L);
+                       use_reorder_data, stats, mem_L, pfm_theta, divergence_k);
   }
 
   template<typename T>
   void PQFlashIndex<T>::cached_beam_search(
       const T *query1, const _u64 k_search, const _u64 l_search, _u64 *indices,
       float *distances, const _u64 beam_width, const _u32 io_limit,
-      const bool use_reorder_data, QueryStats *stats, const _u32 mem_L) {
+      const bool use_reorder_data, QueryStats *stats, const _u32 mem_L,
+      const float pfm_theta, const float divergence_k) {
     ThreadData<T> data = this->thread_data.pop();
     while (data.scratch.sector_scratch == nullptr) {
       this->thread_data.wait_for_push_notify();
@@ -994,6 +997,12 @@ namespace diskann {
     unsigned hops = 0;
     unsigned num_ios = 0;
     unsigned k = 0;
+
+    // PFM+DRA state
+    static constexpr unsigned PFM_MIN_EXPLORE_HOPS = 2;
+    static constexpr float    PFM_DRA_ALPHA         = 0.3f;
+    float pfm_prev_ratio    = 1.0f;
+    float pfm_ema_delta     = 0.0f;
 
     // cleared every iteration
     std::vector<unsigned> frontier;
@@ -1226,6 +1235,26 @@ namespace diskann {
         ++k;
 
       hops++;
+
+      // PFM+DRA early stop: stop when proxy frontier ratio exceeds adaptive threshold
+      if (pfm_theta > 0.0f && hops >= PFM_MIN_EXPLORE_HOPS &&
+          cur_list_size >= k_search && k < cur_list_size) {
+        // scan forward from k to find the true best unexpanded (flag=true) node
+        // k may still point to an already-expanded node after the frontier loop
+        unsigned pfm_k = k;
+        while (pfm_k < cur_list_size && !retset[pfm_k].flag) pfm_k++;
+        if (pfm_k >= cur_list_size) break;  // nothing left to expand
+        float best_unexpanded_pq = retset[pfm_k].distance;
+        float kth_result_pq      = retset[k_search - 1].distance;
+        if (kth_result_pq > 0.0f) {
+          float pq_ratio    = best_unexpanded_pq / kth_result_pq;
+          float delta_ratio = pq_ratio - pfm_prev_ratio;
+          pfm_ema_delta     = PFM_DRA_ALPHA * delta_ratio + (1.0f - PFM_DRA_ALPHA) * pfm_ema_delta;
+          float effective_theta = std::max(1.0f, pfm_theta - divergence_k * pfm_ema_delta);
+          pfm_prev_ratio    = pq_ratio;
+          if (pq_ratio > effective_theta) break;
+        }
+      }
     }
 
     // re-sort by distance
