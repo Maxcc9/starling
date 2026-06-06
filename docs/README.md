@@ -15,6 +15,9 @@ risky.
 - [WORKFLOWS.md](WORKFLOWS.md): common benchmark and experiment flows.
 - [INDEX_STORAGE.md](INDEX_STORAGE.md): required location and naming convention
   for generated index files.
+- [EXPERIMENT_STORAGE_ARCHITECTURE.md](EXPERIMENT_STORAGE_ARCHITECTURE.md):
+  full storage map for indexes, graph-partition artifacts, search logs, reports,
+  analysis CSVs, and generated figures.
 - [DATASET_BENCHMARKS.md](DATASET_BENCHMARKS.md): dataset matrix and commands
   for running Starling across the local DiskANN datasets.
 - [DISKANN_BEATS_STARLING.md](DISKANN_BEATS_STARLING.md): design notes for
