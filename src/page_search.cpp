@@ -1,4 +1,5 @@
 #include <immintrin.h>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include "logger.h"
@@ -40,7 +41,11 @@ namespace diskann {
       const T *query1, const _u64 k_search, const _u32 mem_L, const _u64 l_search, _u64 *indices,
       float *distances, const _u64 beam_width, const _u32 io_limit,
       const bool use_reorder_data, const float use_ratio, QueryStats *stats,
-      const float pfm_theta, const float divergence_k) {
+      const _u32 mem_search_L, const _u32 mem_seed_count,
+      const float pfm_theta, const float divergence_k,
+      const float page_ecg_alpha, const float page_ecg_pq_guard,
+      const unsigned page_ecg_min_hops,
+      const bool collect_query_telemetry) {
     ThreadData<T> data = this->thread_data.pop();
     while (data.scratch.sector_scratch == nullptr) {
       this->thread_data.wait_for_push_notify();
@@ -130,13 +135,42 @@ namespace diskann {
                        dists_out);
     };
 
+    float hop_best_exact = (std::numeric_limits<float>::max)();
     auto compute_extact_dists_and_push = [&](const char* node_buf, const unsigned id) -> float {
       T *node_fp_coords_copy = data_buf;
       memcpy(node_fp_coords_copy, node_buf, disk_bytes_per_point);
-      float cur_expanded_dist = dist_cmp->compare(query, node_fp_coords_copy,
-                                            (unsigned) aligned_dim);
+      float cur_expanded_dist;
+      if (!use_disk_index_pq) {
+        cur_expanded_dist = dist_cmp->compare(query, node_fp_coords_copy,
+                                              (unsigned) aligned_dim);
+      } else if (metric == diskann::Metric::INNER_PRODUCT) {
+        cur_expanded_dist = disk_pq_table.inner_product(
+            query_float, (_u8 *) node_fp_coords_copy);
+      } else {
+        cur_expanded_dist = disk_pq_table.l2_distance(
+            query_float, (_u8 *) node_fp_coords_copy);
+      }
+      if (!std::isfinite(cur_expanded_dist)) {
+        cur_expanded_dist = (std::numeric_limits<float>::max)();
+      }
+      if (cur_expanded_dist < hop_best_exact) {
+        hop_best_exact = cur_expanded_dist;
+      }
       full_retset.push_back(Neighbor(id, cur_expanded_dist, true));
       return cur_expanded_dist;
+    };
+
+    auto compute_page_rank_dist = [&](const char *node_buf) -> float {
+      T *node_fp_coords = OFFSET_TO_NODE_COORDS(node_buf);
+      float dist;
+      if (!use_disk_index_pq) {
+        dist = dist_cmp->compare(query, node_fp_coords, (unsigned) aligned_dim);
+      } else if (metric == diskann::Metric::INNER_PRODUCT) {
+        dist = disk_pq_table.inner_product(query_float, (_u8 *) node_fp_coords);
+      } else {
+        dist = disk_pq_table.l2_distance(query_float, (_u8 *) node_fp_coords);
+      }
+      return std::isfinite(dist) ? dist : (std::numeric_limits<float>::max)();
     };
 
     auto compute_and_push_nbrs = [&](const char *node_buf, unsigned& nk) {
@@ -181,11 +215,14 @@ namespace diskann {
     };
 
     if (mem_L) {
-      std::vector<unsigned> mem_tags(mem_L);
-      std::vector<float> mem_dists(mem_L);
+      const _u32 actual_mem_search_L = mem_search_L ? mem_search_L : mem_L;
+      const _u32 actual_mem_seed_count = mem_seed_count ? mem_seed_count : mem_L;
+      const _u32 actual_mem_k = std::min(actual_mem_seed_count, actual_mem_search_L);
+      std::vector<unsigned> mem_tags(actual_mem_k);
+      std::vector<float> mem_dists(actual_mem_k);
       std::vector<T*> res = std::vector<T*>();
-      mem_index_->search_with_tags(query, mem_L, mem_L, mem_tags.data(), mem_dists.data(), nullptr, res);
-      compute_and_add_to_retset(mem_tags.data(), std::min((unsigned)mem_L,(unsigned)l_search));
+      mem_index_->search_with_tags(query, actual_mem_k, actual_mem_search_L, mem_tags.data(), mem_dists.data(), nullptr, res);
+      compute_and_add_to_retset(mem_tags.data(), std::min(actual_mem_k, (unsigned)l_search));
     } else {
       compute_and_add_to_retset(&best_medoid, 1);
     }
@@ -200,6 +237,13 @@ namespace diskann {
     static constexpr float    PFM_DRA_ALPHA         = 0.3f;
     float pfm_prev_ratio = 1.0f;
     float pfm_ema_delta  = 0.0f;
+    float pfm_last_ratio = 0.0f;
+    float pfm_last_effective_theta = 0.0f;
+    float pfm_last_ema_delta = 0.0f;
+    bool pfm_stopped = false;
+    bool page_ecg_final_stopped = false;
+    float page_ecg_final_hop_best_exact = 0.0f;
+    float page_ecg_final_kth_exact = 0.0f;
     unsigned k = 0;
 
     // cleared every iteration
@@ -218,6 +262,13 @@ namespace diskann {
     std::vector<char> last_pages(SECTOR_LEN * beam_width * 2);
     int n_ops = 0;
 
+    if (stats != nullptr && collect_query_telemetry) {
+      stats->hop_stats.clear();
+      stats->hop_stats.reserve(l_search);
+      stats->io_traces.clear();
+      stats->io_traces.reserve(l_search);
+    }
+
     while (k < cur_list_size && num_ios < io_limit) {
       unsigned nk = cur_list_size;
       // clear iteration state
@@ -226,6 +277,15 @@ namespace diskann {
       frontier_read_reqs.clear();
       cached_nhoods.clear();
       sector_scratch_idx = 0;
+      unsigned selected_count = 0;
+      float selected_min_pq = (std::numeric_limits<float>::max)();
+      float selected_max_pq = 0.0f;
+      double selected_sum_pq = 0.0;
+      unsigned page_rank_count = 0;
+      float page_rank_min = (std::numeric_limits<float>::max)();
+      float page_rank_max = 0.0f;
+      double page_rank_sum = 0.0;
+      hop_best_exact = (std::numeric_limits<float>::max)();
       // find new beam
       _u32 marker = k;
       _u32 num_seen = 0;
@@ -236,6 +296,10 @@ namespace diskann {
         const unsigned pid = id2page_[retset[marker].id];
         if (page_visited.find(pid) == page_visited.end() && retset[marker].flag) {
           num_seen++;
+          selected_count++;
+          selected_min_pq = std::min(selected_min_pq, retset[marker].distance);
+          selected_max_pq = std::max(selected_max_pq, retset[marker].distance);
+          selected_sum_pq += retset[marker].distance;
           auto iter = nhood_cache.find(retset[marker].id);
           if (iter != nhood_cache.end()) {
             cached_nhoods.push_back(
@@ -266,6 +330,9 @@ namespace diskann {
           frontier_read_reqs.emplace_back(
               (static_cast<_u64>(id2page_[id]+1)) * SECTOR_LEN, SECTOR_LEN,
               fnhood.second);
+          if (stats != nullptr && collect_query_telemetry) {
+            stats->io_traces.push_back({hops + 1, id, static_cast<uint64_t>(id2page_[id] + 1)});
+          }
           if (stats != nullptr) {
             stats->n_4k++;
             stats->n_ios++;
@@ -298,11 +365,19 @@ namespace diskann {
           const unsigned id = gp_layout_[pid][j];
           if (id == last_io_id) continue;
           const char* node_buf = sector_buf + j * max_node_len;
-          float dist = compute_extact_dists_and_push(node_buf, id);
+          compute_extact_dists_and_push(node_buf, id);
+          float dist = compute_page_rank_dist(node_buf);
+          page_rank_count++;
+          page_rank_min = std::min(page_rank_min, dist);
+          page_rank_max = std::max(page_rank_max, dist);
+          page_rank_sum += dist;
           vis_cand.emplace_back(dist, node_buf);
         }
         if (vis_size && vis_size != p_size) {
-          std::sort(vis_cand.begin(), vis_cand.end());
+          std::sort(vis_cand.begin(), vis_cand.end(),
+                    [](const auto &a, const auto &b) {
+                      return a.first < b.first;
+                    });
         }
 
         // compute PQ distances for neighbours of the vectors in the page
@@ -358,8 +433,70 @@ namespace diskann {
 
       hops++;
 
-      // PFM+DRA early stop
-      if (pfm_theta > 0.0f && hops >= PFM_MIN_EXPLORE_HOPS &&
+      bool no_unexpanded_left = false;
+      float best_unexpanded_pq = 0.0f;
+      float kth_result_pq = 0.0f;
+      float pq_ratio = 0.0f;
+      float delta_ratio = 0.0f;
+      float effective_theta = 0.0f;
+      float top1_pq = 0.0f;
+      float topk_mean_pq = 0.0f;
+      float topk_std_pq = 0.0f;
+      float topk_gap_pq = 0.0f;
+      float kth_exact = 0.0f;
+      bool page_ecg_stopped = false;
+
+      const unsigned topk_count = (unsigned) std::min<_u64>(k_search, cur_list_size);
+      if (topk_count > 0) {
+        top1_pq = retset[0].distance;
+        double sum = 0.0;
+        double sq_sum = 0.0;
+        for (unsigned i = 0; i < topk_count; ++i) {
+          const double dist = retset[i].distance;
+          sum += dist;
+          sq_sum += dist * dist;
+        }
+        topk_mean_pq = (float) (sum / (double) topk_count);
+        const double variance =
+            std::max(0.0, (sq_sum / (double) topk_count) -
+                              (double) topk_mean_pq * (double) topk_mean_pq);
+        topk_std_pq = (float) std::sqrt(variance);
+        topk_gap_pq = retset[topk_count - 1].distance - retset[0].distance;
+      }
+
+      if ((page_ecg_alpha > 0.0f || (stats != nullptr && collect_query_telemetry)) &&
+          !full_retset.empty()) {
+        std::vector<Neighbor> exact_results = full_retset;
+        std::sort(exact_results.begin(), exact_results.end(),
+                  [](const Neighbor &left, const Neighbor &right) {
+                    return left.distance < right.distance;
+                  });
+        std::vector<unsigned> seen_ids;
+        seen_ids.reserve(k_search);
+        unsigned unique_rank = 0;
+        for (const auto &neighbor : exact_results) {
+          bool duplicate = false;
+          for (const auto id : seen_ids) {
+            if (id == neighbor.id) {
+              duplicate = true;
+              break;
+            }
+          }
+          if (!duplicate) {
+            seen_ids.push_back(neighbor.id);
+            unique_rank++;
+            if (unique_rank == k_search) {
+              kth_exact = neighbor.distance;
+              break;
+            }
+          }
+        }
+      }
+
+      // PFM/DRA convergence signal. Compute it even when pfm_theta=0 so
+      // offline telemetry can train learned stop policies on the same runtime
+      // frontier features without changing search behavior.
+      if (hops >= PFM_MIN_EXPLORE_HOPS &&
           cur_list_size >= k_search && k < cur_list_size) {
         unsigned pfm_k = k;
         // skip nodes that are either already expanded (flag=false) or on a
@@ -368,18 +505,111 @@ namespace diskann {
                (!retset[pfm_k].flag ||
                 page_visited.count(id2page_[retset[pfm_k].id]) > 0))
           pfm_k++;
-        if (pfm_k >= cur_list_size) break;
-        float best_unexpanded_pq = retset[pfm_k].distance;
-        float kth_result_pq      = retset[k_search - 1].distance;
-        if (kth_result_pq > 0.0f) {
-          float pq_ratio    = best_unexpanded_pq / kth_result_pq;
-          float delta_ratio = pq_ratio - pfm_prev_ratio;
-          pfm_ema_delta     = PFM_DRA_ALPHA * delta_ratio + (1.0f - PFM_DRA_ALPHA) * pfm_ema_delta;
-          float effective_theta = std::max(1.0f, pfm_theta - divergence_k * pfm_ema_delta);
-          pfm_prev_ratio    = pq_ratio;
-          if (pq_ratio > effective_theta) break;
+        if (pfm_k >= cur_list_size) {
+          no_unexpanded_left = true;
+        } else {
+          best_unexpanded_pq = retset[pfm_k].distance;
+          kth_result_pq      = retset[k_search - 1].distance;
+          if (kth_result_pq > 0.0f) {
+            pq_ratio = best_unexpanded_pq / kth_result_pq;
+            delta_ratio = pq_ratio - pfm_prev_ratio;
+            pfm_ema_delta = PFM_DRA_ALPHA * delta_ratio +
+                            (1.0f - PFM_DRA_ALPHA) * pfm_ema_delta;
+            effective_theta = std::max(1.0f, pfm_theta - divergence_k * pfm_ema_delta);
+            pfm_last_ratio = pq_ratio;
+            pfm_last_effective_theta = effective_theta;
+            pfm_last_ema_delta = pfm_ema_delta;
+            pfm_prev_ratio = pq_ratio;
+            if (pfm_theta > 0.0f && pq_ratio > effective_theta) {
+              pfm_stopped = true;
+            }
+          }
         }
       }
+
+      if (page_ecg_alpha > 0.0f && hops >= page_ecg_min_hops &&
+          kth_exact > 0.0f &&
+          hop_best_exact < (std::numeric_limits<float>::max)()) {
+        const bool pq_guard_ok = page_ecg_pq_guard <= 0.0f ||
+            (pq_ratio > 0.0f && pq_ratio >= page_ecg_pq_guard);
+        if (pq_guard_ok && hop_best_exact >= kth_exact * page_ecg_alpha) {
+          page_ecg_stopped = true;
+          page_ecg_final_stopped = true;
+          page_ecg_final_hop_best_exact = hop_best_exact;
+          page_ecg_final_kth_exact = kth_exact;
+        }
+      }
+
+      if (stats != nullptr && collect_query_telemetry) {
+        QueryHopStats hop_stat;
+        hop_stat.hop = hops;
+        hop_stat.n_ios = num_ios;
+        hop_stat.n_expanded = (unsigned) full_retset.size();
+        hop_stat.cur_list_size = cur_list_size;
+        hop_stat.k = k;
+        hop_stat.frontier_size = (unsigned) frontier.size();
+        hop_stat.cached_size = (unsigned) cached_nhoods.size();
+        hop_stat.n_cmps = stats->n_cmps;
+        hop_stat.selected_count = selected_count;
+        hop_stat.selected_min_pq = selected_count ? selected_min_pq : 0.0f;
+        hop_stat.selected_mean_pq = selected_count
+            ? (float) (selected_sum_pq / (double) selected_count)
+            : 0.0f;
+        hop_stat.selected_max_pq = selected_count ? selected_max_pq : 0.0f;
+        hop_stat.top1_pq = top1_pq;
+        hop_stat.topk_mean_pq = topk_mean_pq;
+        hop_stat.topk_std_pq = topk_std_pq;
+        hop_stat.topk_gap_pq = topk_gap_pq;
+        hop_stat.page_rank_count = page_rank_count;
+        hop_stat.page_rank_min = page_rank_count ? page_rank_min : 0.0f;
+        hop_stat.page_rank_mean = page_rank_count
+            ? (float) (page_rank_sum / (double) page_rank_count)
+            : 0.0f;
+        hop_stat.page_rank_max = page_rank_count ? page_rank_max : 0.0f;
+        hop_stat.best_unexpanded_pq = best_unexpanded_pq;
+        hop_stat.kth_pq = kth_result_pq;
+        hop_stat.pq_ratio = pq_ratio;
+        hop_stat.delta_ratio = delta_ratio;
+        hop_stat.ema_delta = pfm_ema_delta;
+        hop_stat.effective_theta = effective_theta;
+        hop_stat.pfm_stopped = pfm_stopped;
+        hop_stat.hop_best_exact =
+            hop_best_exact < (std::numeric_limits<float>::max)()
+                ? hop_best_exact
+                : 0.0f;
+        hop_stat.kth_exact = kth_exact;
+        hop_stat.ecg_alpha = page_ecg_alpha;
+        hop_stat.ecg_pq_guard = page_ecg_pq_guard;
+        hop_stat.ecg_stopped = page_ecg_stopped;
+        if (!full_retset.empty()) {
+          std::vector<Neighbor> hop_results = full_retset;
+          std::sort(hop_results.begin(), hop_results.end(),
+                    [](const Neighbor &left, const Neighbor &right) {
+                      return left.distance < right.distance;
+                    });
+          hop_stat.top_ids.reserve(k_search);
+          unsigned unique_rank = 0;
+          for (const auto &neighbor : hop_results) {
+            bool duplicate = false;
+            for (const auto id : hop_stat.top_ids) {
+              if (id == neighbor.id) {
+                duplicate = true;
+                break;
+              }
+            }
+            if (!duplicate) {
+              unique_rank++;
+              hop_stat.top_ids.push_back(neighbor.id);
+              if (hop_stat.top_ids.size() >= k_search) {
+                break;
+              }
+            }
+          }
+        }
+        stats->hop_stats.push_back(hop_stat);
+      }
+
+      if (no_unexpanded_left || pfm_stopped || page_ecg_stopped) break;
     }
 
     // re-sort by distance
@@ -419,6 +649,19 @@ namespace diskann {
 
     if (stats != nullptr) {
       stats->total_us = (double) query_timer.elapsed();
+      stats->n_expanded = (unsigned) full_retset.size();
+      stats->frontier_size = cur_list_size;
+      stats->pfm_stopped = pfm_stopped;
+      stats->pfm_stop_hop = pfm_stopped ? hops : 0;
+      stats->pfm_last_ratio = pfm_last_ratio;
+      stats->pfm_last_effective_theta = pfm_last_effective_theta;
+      stats->pfm_last_ema_delta = pfm_last_ema_delta;
+      stats->ecg_stopped = page_ecg_final_stopped;
+      stats->ecg_stop_hop = page_ecg_final_stopped ? hops : 0;
+      stats->ecg_hop_best_exact = page_ecg_final_hop_best_exact;
+      stats->ecg_kth_exact = page_ecg_final_kth_exact;
+      stats->ecg_alpha = page_ecg_alpha;
+      stats->ecg_pq_guard = page_ecg_pq_guard;
     }
   }
 

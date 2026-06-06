@@ -24,7 +24,7 @@
 #define MAX_N_CMPS 16384
 #define SECTOR_LEN (_u64) 4096
 #define MAX_N_SECTOR_READS 128
-#define MAX_PQ_CHUNKS 256
+#define MAX_PQ_CHUNKS 1024
 
 #define FULL_PRECISION_REORDER_MULTIPLIER 3
 
@@ -121,13 +121,35 @@ namespace diskann {
         const T *query, const _u64 k_search, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width,
         const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0,
-        const float pfm_theta = 0.0f, const float divergence_k = 0.3f);
+        const _u32 mem_search_L = 0, const _u32 mem_seed_count = 0,
+        const float pfm_theta = 0.0f, const float divergence_k = 0.3f,
+        const float ecg_alpha = 0.0f, const unsigned ecg_min_hops = 2,
+        const float ecg_pq_guard = 0.0f,
+        const bool beam_page_aware = false, const float beam_page_ratio = 1.0f,
+        const unsigned beam_page_max_extra_nodes = 0,
+        const bool beam_page_adaptive_extra = false,
+        const unsigned beam_page_easy_extra_nodes = 1,
+        const unsigned beam_page_hard_extra_nodes = 3,
+        const float beam_page_adaptive_ratio_threshold = 1.15f,
+        const unsigned topk_stability_patience = 0,
+        const bool collect_query_telemetry = false);
 
     DISKANN_DLLEXPORT void cached_beam_search(
         const T *query, const _u64 k_search, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,
         const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0,
-        const float pfm_theta = 0.0f, const float divergence_k = 0.3f);
+        const _u32 mem_search_L = 0, const _u32 mem_seed_count = 0,
+        const float pfm_theta = 0.0f, const float divergence_k = 0.3f,
+        const float ecg_alpha = 0.0f, const unsigned ecg_min_hops = 2,
+        const float ecg_pq_guard = 0.0f,
+        const bool beam_page_aware = false, const float beam_page_ratio = 1.0f,
+        const unsigned beam_page_max_extra_nodes = 0,
+        const bool beam_page_adaptive_extra = false,
+        const unsigned beam_page_easy_extra_nodes = 1,
+        const unsigned beam_page_hard_extra_nodes = 3,
+        const float beam_page_adaptive_ratio_threshold = 1.15f,
+        const unsigned topk_stability_patience = 0,
+        const bool collect_query_telemetry = false);
 
     DISKANN_DLLEXPORT void generate_node_nbrs_freq(
         const std::string& freq_save_path,
@@ -141,7 +163,11 @@ namespace diskann {
         const T *query, const _u64 k_search, const _u32 mem_L, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,
         const bool use_reorder_data = false, const float use_ratio = 1.0f, QueryStats *stats = nullptr,
-        const float pfm_theta = 0.0f, const float divergence_k = 0.3f);
+        const _u32 mem_search_L = 0, const _u32 mem_seed_count = 0,
+        const float pfm_theta = 0.0f, const float divergence_k = 0.3f,
+        const float page_ecg_alpha = 0.0f, const float page_ecg_pq_guard = 0.0f,
+        const unsigned page_ecg_min_hops = 2,
+        const bool collect_query_telemetry = false);
     DISKANN_DLLEXPORT void page_search_sq(
         const T *query, const _u64 k_search, const _u32 mem_L, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,

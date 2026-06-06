@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <fstream>
 #include <iomanip>
 #include <omp.h>
 #include <pq_flash_index.h>
@@ -51,6 +52,162 @@ void print_stats(std::string category, std::vector<float> percentiles,
   diskann::cout << std::endl;
 }
 
+float calculate_query_recall(const unsigned* gt_ids, size_t gt_dim,
+                             const uint32_t* result_ids, unsigned recall_at) {
+  if (gt_ids == nullptr || gt_dim == 0) {
+    return 0.0f;
+  }
+  unsigned matches = 0;
+  const size_t truth_count = std::min<size_t>(gt_dim, recall_at);
+  for (unsigned r = 0; r < recall_at; ++r) {
+    for (size_t g = 0; g < truth_count; ++g) {
+      if (result_ids[r] == gt_ids[g]) {
+        matches++;
+        break;
+      }
+    }
+  }
+  return 100.0f * (float) matches / (float) recall_at;
+}
+
+float calculate_vector_recall(const unsigned* gt_ids, size_t gt_dim,
+                              const std::vector<unsigned>& result_ids,
+                              unsigned recall_at) {
+  if (gt_ids == nullptr || gt_dim == 0 || result_ids.empty()) {
+    return 0.0f;
+  }
+  unsigned matches = 0;
+  const size_t truth_count = std::min<size_t>(gt_dim, recall_at);
+  const size_t result_count = std::min<size_t>(result_ids.size(), recall_at);
+  for (size_t r = 0; r < result_count; ++r) {
+    for (size_t g = 0; g < truth_count; ++g) {
+      if (result_ids[r] == gt_ids[g]) {
+        matches++;
+        break;
+      }
+    }
+  }
+  return 100.0f * (float) matches / (float) recall_at;
+}
+
+void write_query_telemetry(const std::string& telemetry_prefix,
+                           unsigned L,
+                           unsigned beamwidth,
+                           unsigned threads,
+                           unsigned recall_at,
+                           unsigned mem_L,
+                           unsigned mem_search_L,
+                           unsigned mem_seed_count,
+                           float pfm_theta,
+                           float divergence_k,
+                           float ecg_alpha,
+                           unsigned ecg_min_hops,
+                           float ecg_pq_guard,
+                           bool use_page_search,
+                           diskann::QueryStats* stats,
+                           size_t query_num,
+                           const unsigned* gt_ids,
+                           size_t gt_dim,
+                           const std::vector<uint32_t>& query_result_ids) {
+  if (telemetry_prefix.empty()) {
+    return;
+  }
+
+  std::string telemetry_path = telemetry_prefix + "_L" + std::to_string(L) + ".csv";
+  std::string hop_telemetry_path = telemetry_prefix + "_L" + std::to_string(L) + "_hops.csv";
+  std::string io_trace_path = telemetry_prefix + "_L" + std::to_string(L) + "_io.csv";
+  std::ofstream out(telemetry_path);
+  if (!out) {
+    throw std::runtime_error("Could not open telemetry output: " + telemetry_path);
+  }
+  std::ofstream hop_out(hop_telemetry_path);
+  if (!hop_out) {
+    throw std::runtime_error("Could not open hop telemetry output: " + hop_telemetry_path);
+  }
+  std::ofstream io_out(io_trace_path);
+  if (!io_out) {
+    throw std::runtime_error("Could not open IO trace output: " + io_trace_path);
+  }
+
+  out << "query_id,L,beamwidth,threads,recall_at,use_page_search,mem_L,mem_search_L,mem_seed_count,pfm_theta,divergence_k,"
+      << "ecg_alpha,ecg_min_hops,"
+      << "ecg_pq_guard,"
+      << "total_us,io_us,cpu_us,n_ios,n_hops,n_expanded,frontier_size,n_cmps,n_cache_hits,"
+      << "pfm_stopped,pfm_stop_hop,pfm_last_ratio,pfm_last_effective_theta,pfm_last_ema_delta,"
+      << "ecg_stopped,ecg_stop_hop,ecg_hop_best_exact,ecg_kth_exact,"
+      << "query_recall_percent\n";
+  hop_out << "query_id,L,beamwidth,threads,recall_at,use_page_search,mem_L,mem_search_L,mem_seed_count,pfm_theta,divergence_k,"
+          << "ecg_alpha,ecg_min_hops,"
+          << "ecg_pq_guard,"
+          << "hop,n_ios,n_expanded,cur_list_size,k,frontier_size,cached_size,n_cmps,"
+          << "selected_count,selected_min_pq,selected_mean_pq,selected_max_pq,"
+          << "top1_pq,topk_mean_pq,topk_std_pq,topk_gap_pq,"
+          << "page_rank_count,page_rank_min,page_rank_mean,page_rank_max,"
+          << "best_unexpanded_pq,kth_pq,pq_ratio,delta_ratio,ema_delta,effective_theta,"
+          << "pfm_stopped,hop_best_exact,kth_exact,ecg_stopped,"
+          << "hop_recall_percent,final_total_us,final_query_recall_percent\n";
+  io_out << "query_id,L,beamwidth,threads,recall_at,use_page_search,mem_L,mem_search_L,mem_seed_count,"
+         << "pfm_theta,divergence_k,hop,read_id,io_key,final_total_us,final_query_recall_percent\n";
+
+  for (size_t i = 0; i < query_num; ++i) {
+    const float query_recall = gt_ids == nullptr
+        ? 0.0f
+        : calculate_query_recall(gt_ids + i * gt_dim, gt_dim,
+                                 query_result_ids.data() + i * recall_at, recall_at);
+    const auto& s = stats[i];
+    out << i << ',' << L << ',' << beamwidth << ',' << threads << ',' << recall_at << ','
+        << (use_page_search ? 1 : 0) << ',' << mem_L << ',' << mem_search_L << ','
+        << mem_seed_count << ',' << pfm_theta << ',' << divergence_k << ','
+        << ecg_alpha << ',' << ecg_min_hops << ',' << ecg_pq_guard << ','
+        << s.total_us << ',' << s.io_us << ',' << s.cpu_us << ','
+        << s.n_ios << ',' << s.n_hops << ',' << s.n_expanded << ','
+        << s.frontier_size << ',' << s.n_cmps << ',' << s.n_cache_hits << ','
+        << (s.pfm_stopped ? 1 : 0) << ',' << s.pfm_stop_hop << ','
+        << s.pfm_last_ratio << ',' << s.pfm_last_effective_theta << ','
+        << s.pfm_last_ema_delta << ','
+        << (s.ecg_stopped ? 1 : 0) << ',' << s.ecg_stop_hop << ','
+        << s.ecg_hop_best_exact << ',' << s.ecg_kth_exact << ','
+        << query_recall << '\n';
+
+    for (const auto& hop : s.hop_stats) {
+      const float hop_recall = gt_ids == nullptr
+          ? 0.0f
+          : calculate_vector_recall(gt_ids + i * gt_dim, gt_dim,
+                                    hop.top_ids, recall_at);
+      hop_out << i << ',' << L << ',' << beamwidth << ',' << threads << ','
+              << recall_at << ',' << (use_page_search ? 1 : 0) << ','
+              << mem_L << ',' << mem_search_L << ',' << mem_seed_count << ','
+              << pfm_theta << ',' << divergence_k << ','
+              << ecg_alpha << ',' << ecg_min_hops << ',' << ecg_pq_guard << ','
+              << hop.hop << ',' << hop.n_ios << ',' << hop.n_expanded << ','
+              << hop.cur_list_size << ',' << hop.k << ',' << hop.frontier_size << ','
+              << hop.cached_size << ',' << hop.n_cmps << ','
+              << hop.selected_count << ',' << hop.selected_min_pq << ','
+              << hop.selected_mean_pq << ',' << hop.selected_max_pq << ','
+              << hop.top1_pq << ',' << hop.topk_mean_pq << ','
+              << hop.topk_std_pq << ',' << hop.topk_gap_pq << ','
+              << hop.page_rank_count << ',' << hop.page_rank_min << ','
+              << hop.page_rank_mean << ',' << hop.page_rank_max << ','
+              << hop.best_unexpanded_pq << ',' << hop.kth_pq << ','
+              << hop.pq_ratio << ',' << hop.delta_ratio << ','
+              << hop.ema_delta << ',' << hop.effective_theta << ','
+              << (hop.pfm_stopped ? 1 : 0) << ','
+              << hop.hop_best_exact << ',' << hop.kth_exact << ','
+              << (hop.ecg_stopped ? 1 : 0) << ','
+              << hop_recall << ','
+              << s.total_us << ',' << query_recall << '\n';
+    }
+    for (const auto& io : s.io_traces) {
+      io_out << i << ',' << L << ',' << beamwidth << ',' << threads << ','
+             << recall_at << ',' << (use_page_search ? 1 : 0) << ','
+             << mem_L << ',' << mem_search_L << ',' << mem_seed_count << ','
+             << pfm_theta << ',' << divergence_k << ','
+             << io.hop << ',' << io.read_id << ',' << io.io_key << ','
+             << s.total_us << ',' << query_recall << '\n';
+    }
+  }
+}
+
 template<typename T>
 int search_disk_index(
     diskann::Metric& metric, const std::string& index_path_prefix,
@@ -62,12 +219,29 @@ int search_disk_index(
     const unsigned beamwidth, const unsigned num_nodes_to_cache,
     const _u32 search_io_limit, const std::vector<unsigned>& Lvec,
     const _u32 mem_L,
+    const _u32 mem_search_L = 0,
+    const _u32 mem_seed_count = 0,
     const bool use_page_search=true,
     const float use_ratio=1.0,
     const bool use_reorder_data = false,
     const bool use_sq = false,
     const float pfm_theta = 0.0f,
-    const float divergence_k = 0.3f) {
+    const float divergence_k = 0.3f,
+    const float ecg_alpha = 0.0f,
+    const unsigned ecg_min_hops = 2,
+    const float ecg_pq_guard = 0.0f,
+    const bool beam_page_aware = false,
+    const float beam_page_ratio = 1.0f,
+    const unsigned beam_page_max_extra_nodes = 0,
+    const bool beam_page_adaptive_extra = false,
+    const unsigned beam_page_easy_extra_nodes = 1,
+    const unsigned beam_page_hard_extra_nodes = 3,
+    const float beam_page_adaptive_ratio_threshold = 1.15f,
+    const unsigned topk_stability_patience = 0,
+    const float page_ecg_alpha = 0.0f,
+    const float page_ecg_pq_guard = 0.0f,
+    const unsigned page_ecg_min_hops = 2,
+    const std::string& telemetry_path = "") {
   diskann::cout << "Search parameters: #threads: " << num_threads << ", ";
   if (beamwidth <= 0)
     diskann::cout << "beamwidth to be optimized for each L value" << std::flush;
@@ -116,7 +290,7 @@ int search_disk_index(
     exit(-1);
   }
   std::unique_ptr<diskann::PQFlashIndex<T>> _pFlashIndex(
-      new diskann::PQFlashIndex<T>(reader, use_page_search, metric, use_sq));
+      new diskann::PQFlashIndex<T>(reader, use_page_search || beam_page_aware, metric, use_sq));
 
   int res = _pFlashIndex->load(num_threads, index_path_prefix.c_str(), disk_file_path);
 
@@ -126,9 +300,12 @@ int search_disk_index(
 
   size_t load_mem = getCurrentRSS();
 
+  const _u32 actual_mem_search_L = mem_search_L ? mem_search_L : mem_L;
+  const _u32 actual_mem_seed_count = mem_seed_count ? mem_seed_count : mem_L;
+
   // load in-memory navigation graph
   if (mem_L) {
-    _pFlashIndex->load_mem_index(metric, query_dim, mem_index_path, num_threads, mem_L);
+    _pFlashIndex->load_mem_index(metric, query_dim, mem_index_path, num_threads, actual_mem_search_L);
   }
 
   // cache bfs levels
@@ -264,7 +441,9 @@ int search_disk_index(
               query_result_ids_64.data() + (i * recall_at),
               query_result_dists[test_id].data() + (i * recall_at),
               optimized_beamwidth, search_io_limit, use_reorder_data, use_ratio, stats + i,
-              pfm_theta, divergence_k);
+              actual_mem_search_L, actual_mem_seed_count, pfm_theta, divergence_k,
+              page_ecg_alpha, page_ecg_pq_guard, page_ecg_min_hops,
+              !telemetry_path.empty());
         }
       }
     } else {
@@ -279,7 +458,13 @@ int search_disk_index(
             query_result_ids_64.data() + (i * recall_at),
             query_result_dists[test_id].data() + (i * recall_at),
             optimized_beamwidth, search_io_limit, use_reorder_data, stats + i, mem_L,
-            pfm_theta, divergence_k);
+            actual_mem_search_L, actual_mem_seed_count,
+            pfm_theta, divergence_k, ecg_alpha, ecg_min_hops, ecg_pq_guard,
+            beam_page_aware, beam_page_ratio, beam_page_max_extra_nodes,
+            beam_page_adaptive_extra, beam_page_easy_extra_nodes,
+            beam_page_hard_extra_nodes, beam_page_adaptive_ratio_threshold,
+            topk_stability_patience,
+            !telemetry_path.empty());
       }
     }
     auto                          e = std::chrono::high_resolution_clock::now();
@@ -320,6 +505,13 @@ int search_disk_index(
                                          query_result_ids[test_id].data(),
                                          recall_at, recall_at);
     }
+
+    write_query_telemetry(telemetry_path, (unsigned) L, optimized_beamwidth,
+                          num_threads, recall_at, mem_L, actual_mem_search_L,
+                          actual_mem_seed_count, pfm_theta, divergence_k,
+                          ecg_alpha, ecg_min_hops, ecg_pq_guard,
+                          use_page_search, stats, query_num, gt_ids, gt_dim,
+                          query_result_ids[test_id]);
 
     diskann::cout << std::setw(6) << L << std::setw(12) << optimized_beamwidth
                   << std::setw(16) << qps << std::setw(16) << mean_latency
@@ -363,9 +555,9 @@ int search_disk_index(
 
 int main(int argc, char** argv) {
   std::string data_type, dist_fn, index_path_prefix, result_path_prefix,
-      query_file, gt_file, disk_file_path, mem_index_path;
+      query_file, gt_file, disk_file_path, mem_index_path, telemetry_path;
   unsigned              num_threads, K, W, num_nodes_to_cache, search_io_limit;
-  unsigned              mem_L;
+  unsigned              mem_L, mem_search_L, mem_seed_count;
   std::vector<unsigned> Lvec;
   bool                  use_reorder_data = false;
   bool                  use_page_search = true;
@@ -373,6 +565,20 @@ int main(int argc, char** argv) {
   bool use_sq = false;
   float pfm_theta = 0.0f;
   float divergence_k = 0.3f;
+  float ecg_alpha = 0.0f;
+  unsigned ecg_min_hops = 2;
+  float ecg_pq_guard = 0.0f;
+  bool beam_page_aware = false;
+  float beam_page_ratio = 1.0f;
+  unsigned beam_page_max_extra_nodes = 0;
+  bool beam_page_adaptive_extra = false;
+  unsigned beam_page_easy_extra_nodes = 1;
+  unsigned beam_page_hard_extra_nodes = 3;
+  float beam_page_adaptive_ratio_threshold = 1.15f;
+  unsigned topk_stability_patience = 0;
+  float page_ecg_alpha = 0.0f;
+  float page_ecg_pq_guard = 0.0f;
+  unsigned page_ecg_min_hops = 2;
 
   po::options_description desc{"Arguments"};
   try {
@@ -424,6 +630,10 @@ int main(int argc, char** argv) {
                        "Use SQ-compressed disk vector.");
     desc.add_options()("mem_L", po::value<unsigned>(&mem_L)->default_value(0),
                        "The L of the in-memory navigation graph while searching. Use 0 to disable");
+    desc.add_options()("mem_search_L", po::value<unsigned>(&mem_search_L)->default_value(0),
+                       "RAM navigation graph search list size. 0 keeps the legacy mem_L value.");
+    desc.add_options()("mem_seed_count", po::value<unsigned>(&mem_seed_count)->default_value(0),
+                       "Number of RAM navigation results injected into disk search. 0 keeps the legacy mem_L value.");
     desc.add_options()("use_page_search", po::value<bool>(&use_page_search)->default_value(1),
                        "Use 1 for page search (default), 0 for DiskANN beam search");
     desc.add_options()("use_ratio", po::value<float>(&use_ratio)->default_value(1.0f),
@@ -433,9 +643,39 @@ int main(int argc, char** argv) {
     desc.add_options()("mem_index_path", po::value<std::string>(&mem_index_path)->default_value(""),
                        "The prefix path of the mem_index");
     desc.add_options()("pfm_theta", po::value<float>(&pfm_theta)->default_value(0.0f),
-                       "PFM early stop threshold (0=disabled). Suggested: 1.10-1.20. Beam search only.");
+                       "PFM early stop threshold (0=disabled). Suggested: 1.10-1.20.");
     desc.add_options()("divergence_k", po::value<float>(&divergence_k)->default_value(0.3f),
                        "DRA divergence-rate coefficient for PFM adaptive threshold. Suggested: 0.3-0.4.");
+    desc.add_options()("telemetry_path", po::value<std::string>(&telemetry_path)->default_value(""),
+                       "Optional CSV output prefix for per-query search telemetry. Writes <prefix>_L<L>.csv.");
+    desc.add_options()("ecg_alpha", po::value<float>(&ecg_alpha)->default_value(0.0f),
+                       "Exact Convergence Gate alpha for beam search (0=disabled). Suggested exploratory range: 1.05-1.20.");
+    desc.add_options()("ecg_min_hops", po::value<unsigned>(&ecg_min_hops)->default_value(2),
+                       "Minimum hops before ECG can stop a beam-search query.");
+    desc.add_options()("ecg_pq_guard", po::value<float>(&ecg_pq_guard)->default_value(0.0f),
+                       "Require pq_ratio >= this guard before ECG can stop (0=disabled).");
+    desc.add_options()("beam_page_aware", po::value<bool>(&beam_page_aware)->default_value(false),
+                       "Use Starling page-layout reads inside DiskANN beam search. Requires --use_page_search 0 and _disk.index.");
+    desc.add_options()("beam_page_ratio", po::value<float>(&beam_page_ratio)->default_value(1.0f),
+                       "Fraction of extra page-local nodes to process for beam_page_aware.");
+    desc.add_options()("beam_page_max_extra_nodes", po::value<unsigned>(&beam_page_max_extra_nodes)->default_value(0),
+                       "Cap extra page-local nodes processed by beam_page_aware. 0 means no cap.");
+    desc.add_options()("beam_page_adaptive_extra", po::value<bool>(&beam_page_adaptive_extra)->default_value(false),
+                       "Adapt page-local extra expansion count using the previous PFM pq_ratio.");
+    desc.add_options()("beam_page_easy_extra_nodes", po::value<unsigned>(&beam_page_easy_extra_nodes)->default_value(1),
+                       "Page-local extra nodes for easy/converged frontier when adaptive extra is enabled.");
+    desc.add_options()("beam_page_hard_extra_nodes", po::value<unsigned>(&beam_page_hard_extra_nodes)->default_value(3),
+                       "Page-local extra nodes for hard/non-converged frontier when adaptive extra is enabled.");
+    desc.add_options()("beam_page_adaptive_ratio_threshold", po::value<float>(&beam_page_adaptive_ratio_threshold)->default_value(1.15f),
+                       "Previous-hop pq_ratio threshold for easy/converged frontier in adaptive page extra.");
+    desc.add_options()("topk_stability_patience", po::value<unsigned>(&topk_stability_patience)->default_value(0),
+                       "Beam-search top-K stability early stop patience in hops (0=disabled). Stops when retset top-K ids remain unchanged for N consecutive hops.");
+    desc.add_options()("page_ecg_alpha", po::value<float>(&page_ecg_alpha)->default_value(0.0f),
+                       "Page-search exact convergence alpha (0=disabled). Stops when hop_best_exact >= kth_exact * alpha.");
+    desc.add_options()("page_ecg_pq_guard", po::value<float>(&page_ecg_pq_guard)->default_value(0.0f),
+                       "Require page-search pq_ratio >= this guard before page ECG can stop (0=disabled).");
+    desc.add_options()("page_ecg_min_hops", po::value<unsigned>(&page_ecg_min_hops)->default_value(2),
+                       "Minimum hops before page-search ECG/rule stop can fire.");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -499,22 +739,43 @@ int main(int argc, char** argv) {
                                       result_path_prefix, query_file, gt_file,
                                       disk_file_path,
                                       num_threads, K, W, num_nodes_to_cache,
-                                      search_io_limit, Lvec, mem_L, use_page_search, use_ratio, use_reorder_data, use_sq,
-                                      pfm_theta, divergence_k);
+                                      search_io_limit, Lvec, mem_L, mem_search_L, mem_seed_count,
+                                      use_page_search, use_ratio, use_reorder_data, use_sq,
+                                      pfm_theta, divergence_k, ecg_alpha, ecg_min_hops, ecg_pq_guard,
+                                      beam_page_aware, beam_page_ratio, beam_page_max_extra_nodes,
+                                      beam_page_adaptive_extra, beam_page_easy_extra_nodes,
+                                      beam_page_hard_extra_nodes, beam_page_adaptive_ratio_threshold,
+                                      topk_stability_patience,
+                                      page_ecg_alpha, page_ecg_pq_guard, page_ecg_min_hops,
+                                      telemetry_path);
     else if (data_type == std::string("int8"))
       return search_disk_index<int8_t>(metric, index_path_prefix,
                                        mem_index_path,
                                        result_path_prefix, query_file, gt_file,
                                        disk_file_path,
                                        num_threads, K, W, num_nodes_to_cache,
-                                       search_io_limit, Lvec, mem_L, use_page_search, use_ratio, use_reorder_data, false,
-                                       pfm_theta, divergence_k);
+                                       search_io_limit, Lvec, mem_L, mem_search_L, mem_seed_count,
+                                       use_page_search, use_ratio, use_reorder_data, false,
+                                       pfm_theta, divergence_k, ecg_alpha, ecg_min_hops, ecg_pq_guard,
+                                       beam_page_aware, beam_page_ratio, beam_page_max_extra_nodes,
+                                       beam_page_adaptive_extra, beam_page_easy_extra_nodes,
+                                       beam_page_hard_extra_nodes, beam_page_adaptive_ratio_threshold,
+                                       topk_stability_patience,
+                                       page_ecg_alpha, page_ecg_pq_guard, page_ecg_min_hops,
+                                       telemetry_path);
     else if (data_type == std::string("uint8"))
       return search_disk_index<uint8_t>(
           metric, index_path_prefix, mem_index_path, result_path_prefix, query_file, gt_file,
-          disk_file_path, num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec, mem_L,
+          disk_file_path, num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec,
+          mem_L, mem_search_L, mem_seed_count,
           use_page_search, use_ratio, use_reorder_data, false,
-          pfm_theta, divergence_k);
+          pfm_theta, divergence_k, ecg_alpha, ecg_min_hops, ecg_pq_guard,
+          beam_page_aware, beam_page_ratio, beam_page_max_extra_nodes,
+          beam_page_adaptive_extra, beam_page_easy_extra_nodes,
+          beam_page_hard_extra_nodes, beam_page_adaptive_ratio_threshold,
+          topk_stability_patience,
+          page_ecg_alpha, page_ecg_pq_guard, page_ecg_min_hops,
+          telemetry_path);
     else {
       std::cerr << "Unsupported data type. Use float or int8 or uint8"
                 << std::endl;
