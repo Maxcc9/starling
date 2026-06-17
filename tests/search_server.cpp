@@ -249,11 +249,13 @@ class SearchServer
 
         if (_mem_L > 0)
         {
-            // Starling page search (mem_L navigation graph)
+            // Starling page search (mem_L navigation graph).
+            // io_limit matches batch binary default (uint32::max = unlimited);
+            // l_search alone controls beam width.
             _index->page_search(query.data(), request.k, _mem_L, request.l,
                                  result_ids.data(), result_dists.data(),
                                  _beamwidth,
-                                 /*io_limit=*/request.l,
+                                 /*io_limit=*/std::numeric_limits<uint32_t>::max(),
                                  /*use_reorder_data=*/false,
                                  _use_ratio,
                                  /*stats=*/nullptr);
