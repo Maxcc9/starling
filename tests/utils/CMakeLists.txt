@@ -24,6 +24,9 @@ target_link_libraries(int8_to_float ${PROJECT_NAME})
 add_executable(int8_to_float_scale int8_to_float_scale.cpp)
 target_link_libraries(int8_to_float_scale ${PROJECT_NAME})
 
+add_executable(int8_to_uint8_offset int8_to_uint8_offset.cpp)
+target_link_libraries(int8_to_uint8_offset ${PROJECT_NAME})
+
 add_executable(uint8_to_float uint8_to_float.cpp)
 target_link_libraries(uint8_to_float ${PROJECT_NAME})
 
@@ -77,4 +80,3 @@ target_link_libraries(sq ${PROJECT_NAME} ${DISKANN_ASYNC_LIB} ${DISKANN_TOOLS_TC
 # if (LINUX)
 # 	add_custom_command(TARGET gen_random_slice PRE_BUILD COMMAND clang-format -i ../../../include/*.h ../../../include/dll/*.h ../../../src/*.cpp  ../../../tests/*.cpp ../../../src/dll/*.cpp ../../../tests/utils/*.cpp)
 # endif()
-
