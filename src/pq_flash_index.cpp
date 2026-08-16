@@ -343,12 +343,12 @@ namespace diskann {
 
     node_list.clear();
 
-    // Do not cache more than 10% of the nodes in the index
-    _u64 tenp_nodes = (_u64)(std::round(this->num_points * 0.1));
+    // Cap at total node count (no artificial 10% limit — let BFS cache fill to budget).
+    _u64 tenp_nodes = this->num_points;
     if (num_nodes_to_cache > tenp_nodes) {
       diskann::cout << "Reducing nodes to cache from: " << num_nodes_to_cache
                     << " to: " << tenp_nodes
-                    << "(10 percent of total nodes:" << this->num_points << ")"
+                    << "(total nodes:" << this->num_points << ")"
                     << std::endl;
       num_nodes_to_cache = tenp_nodes == 0 ? 1 : tenp_nodes;
     }

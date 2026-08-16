@@ -62,6 +62,11 @@ struct ResponseHeader
 static_assert(sizeof(RequestHeader) == 16, "Unexpected request header size");
 static_assert(sizeof(ResponseHeader) == 12, "Unexpected response header size");
 
+// Global SSD-read counter (page reads). page_search already computes stats->n_ios;
+// we accumulate it here and expose it via the report_io control message (l==3/4),
+// mirroring the DiskANN search_server protocol so pareto_client works unchanged.
+std::atomic<uint64_t> g_io_count{0};
+
 bool recv_all(int fd, void *buffer, size_t length)
 {
     auto *ptr = static_cast<std::uint8_t *>(buffer);
@@ -226,7 +231,20 @@ class SearchServer
         if (!recv_all(fd, &request, sizeof(request)))
             return;
 
-        if (request.k == 0 || request.l == 0)
+        // Control message: k == 0 (mirror DiskANN server protocol).
+        //   l == 3 → read global IO counter; l == 4 → reset it.
+        if (request.k == 0)
+        {
+            uint64_t ctl_ret = 0;
+            if (request.l == 3)
+                ctl_ret = g_io_count.load(std::memory_order_relaxed);
+            else if (request.l == 4)
+                g_io_count.store(0, std::memory_order_relaxed);
+            ResponseHeader control_resp{request.query_id, ctl_ret};
+            send_all(fd, &control_resp, sizeof(control_resp));
+            return;
+        }
+        if (request.l == 0)
         {
             std::cerr << "invalid request parameters" << std::endl;
             return;
@@ -252,13 +270,15 @@ class SearchServer
             // Starling page search (mem_L navigation graph).
             // io_limit matches batch binary default (uint32::max = unlimited);
             // l_search alone controls beam width.
+            diskann::QueryStats stats;
             _index->page_search(query.data(), request.k, _mem_L, request.l,
                                  result_ids.data(), result_dists.data(),
                                  _beamwidth,
                                  /*io_limit=*/std::numeric_limits<uint32_t>::max(),
                                  /*use_reorder_data=*/false,
                                  _use_ratio,
-                                 /*stats=*/nullptr);
+                                 /*stats=*/&stats);
+            g_io_count.fetch_add(static_cast<uint64_t>(stats.n_ios), std::memory_order_relaxed);
         }
         else
         {
