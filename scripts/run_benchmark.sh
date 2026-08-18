@@ -47,16 +47,13 @@ case $1 in
     EXE_PATH=../debug
   ;;
   release)
-    cmake -DCMAKE_BUILD_TYPE=Release .. -B ../release
     EXE_PATH=../release
   ;;
   *)
     print_usage_and_exit
   ;;
 esac
-pushd $EXE_PATH
-make -j
-popd
+# 跳過 cmake/make:binary 已在 build/ 建好(release symlink→build);CMakeCache 卡遷移前舊路徑不能重編
 
 mkdir -p "$STARLING_INDEX_ROOT"
 
@@ -74,6 +71,7 @@ case $2 in
       -L $BUILD_L \
       -B $B \
       -M $M \
+      --PQ_disk_bytes $PQ_DISK_BYTES \
       -T $BUILD_T > "${INDEX_DIR}/build.log"
     cp ${INDEX_PREFIX_PATH}_disk.index ${INDEX_PREFIX_PATH}_disk_beam_search.index
   ;;
