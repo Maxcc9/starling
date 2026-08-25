@@ -342,6 +342,11 @@ namespace diskann {
     std::mt19937       urng(rng());
 
     node_list.clear();
+    // O(1) membership check for node_list — the original std::find() linear
+    // scan turns each level's dedup pass into O(node_list.size()) per node,
+    // which blows up to O(N^2) once node_list reaches millions of entries
+    // (observed: ~294KB/s read rate, ETA ~30h for a 36M-node cache target).
+    tsl::robin_set<uint32_t> node_list_seen;
 
     // Cap at total node count (no artificial 10% limit — let BFS cache fill to budget).
     _u64 tenp_nodes = this->num_points;
@@ -383,11 +388,11 @@ namespace diskann {
       std::vector<unsigned> nodes_to_expand;
 
       for (const unsigned &id : *prev_level) {
-        if (std::find(node_list.begin(), node_list.end(), id) !=
-            node_list.end()) {
+        if (node_list_seen.find(id) != node_list_seen.end()) {
           continue;
         }
         node_list.push_back(id);
+        node_list_seen.insert(id);
         nodes_to_expand.push_back(id);
       }
 
@@ -453,8 +458,7 @@ namespace diskann {
           unsigned *nbrs = node_nhood + 1;
           // explore next level
           for (_u64 j = 0; j < nnbrs && !finish_flag; j++) {
-            if (std::find(node_list.begin(), node_list.end(), nbrs[j]) ==
-                node_list.end()) {
+            if (node_list_seen.find(nbrs[j]) == node_list_seen.end()) {
               cur_level->insert(nbrs[j]);
             }
             if (cur_level->size() + node_list.size() >= num_nodes_to_cache) {
