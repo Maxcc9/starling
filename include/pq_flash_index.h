@@ -135,6 +135,13 @@ namespace diskann {
         float *res_dists, const _u64 beam_width, const _u32 io_limit,
         const bool use_reorder_data = false, QueryStats *stats = nullptr, const _u32 mem_L = 0);
 
+    // ── Convergence-aware early termination (CA-ET), ported from PaceANN ──
+    // 預設 et_theta_ = 0 → 測試永不觸發,page_search 走原本完全相同的路徑。
+    // 只有 search_server 傳入 --et_theta_exact 時才啟用。
+    DISKANN_DLLEXPORT void set_ca_et(float theta, _u32 min_rounds) {
+      et_theta_ = theta; et_min_rounds_ = min_rounds;
+    }
+
     DISKANN_DLLEXPORT void page_search(
         const T *query, const _u64 k_search, const _u32 mem_L, const _u64 l_search, _u64 *res_ids,
         float *res_dists, const _u64 beam_width, const _u32 io_limit,
@@ -262,6 +269,9 @@ namespace diskann {
     _u64                           max_nthreads;
     bool                           load_flag = false;
     bool                           count_visited_nodes = false;
+    // CA-ET 狀態(0 = 停用,見 set_ca_et)
+    float                          et_theta_ = 0.0f;
+    _u32                           et_min_rounds_ = 0;
     bool                           count_visited_nbrs = false;
     bool                           reorder_data_exists = false;
     _u64                           reoreder_data_offset = 0;

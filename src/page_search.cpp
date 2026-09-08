@@ -210,6 +210,7 @@ namespace diskann {
     std::vector<char> last_pages(SECTOR_LEN * beam_width * 2);
     int n_ops = 0;
 
+    _u32 et_rounds = 0;   // CA-ET 寬限期用的輪次計數
     while (k < cur_list_size && num_ios < io_limit) {
       unsigned nk = cur_list_size;
       // clear iteration state
@@ -347,6 +348,18 @@ namespace diskann {
         k = nk;  // k is the best position in retset updated in this round.
       else
         ++k;
+
+      // ── CA-ET:輪次邊界的停止測試(移植自 PaceANN 的同尺度規則)──
+      // 停止條件:最佳未展開候選的 PQ 下界 > theta x 目前第 k_search 好的 PQ 距離。
+      // 兩個輸入都已在 retset(DRAM)中,不產生任何額外 I/O。
+      // et_theta_ == 0 時整段跳過 —— 未啟用旗標時行為與移植前逐位相同。
+      ++et_rounds;
+      if (et_theta_ > 0.0f && et_rounds > et_min_rounds_ && k < cur_list_size) {
+        const unsigned et_kth =
+            (unsigned) std::min<_u64>(k_search, (_u64) cur_list_size) - 1;
+        if (retset[k].distance > et_theta_ * retset[et_kth].distance)
+          break;
+      }
     }
 
     // re-sort by distance

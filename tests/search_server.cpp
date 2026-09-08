@@ -117,6 +117,8 @@ class SearchServer
                  const uint32_t beamwidth,
                  const uint32_t mem_L,
                  const float    use_ratio,
+                 const float    et_theta,
+                 const uint32_t et_min_rounds,
                  const uint32_t query_dim)
         : _beamwidth(beamwidth), _mem_L(mem_L), _use_ratio(use_ratio)
     {
@@ -130,6 +132,14 @@ class SearchServer
         const int rc = _index->load(num_threads, index_prefix.c_str(), disk_file_path);
         if (rc != 0)
             throw std::runtime_error("Unable to load index, status=" + std::to_string(rc));
+
+        // CA-ET(移植自 PaceANN):theta<=0 時完全不啟用,走原本的 page_search 路徑
+        if (et_theta > 0.0f)
+        {
+            _index->set_ca_et(et_theta, et_min_rounds);
+            std::cout << "CA-ET enabled: theta=" << et_theta
+                      << " min_rounds=" << et_min_rounds << std::endl;
+        }
 
         if (mem_L > 0 && !mem_index_path.empty())
         {
@@ -334,12 +344,14 @@ int run_search_server(const std::string &index_prefix,
                       const uint32_t beamwidth,
                       const uint32_t mem_L,
                       const float    use_ratio,
+                      const float    et_theta,
+                      const uint32_t et_min_rounds,
                       const uint32_t query_dim,
                       const uint16_t port)
 {
     SearchServer<T> server(index_prefix, disk_file_path, mem_index_path, metric,
                            num_nodes_to_cache, num_threads, beamwidth,
-                           mem_L, use_ratio, query_dim);
+                           mem_L, use_ratio, et_theta, et_min_rounds, query_dim);
     server.serve(port, num_threads);
     return 0;
 }
@@ -351,6 +363,8 @@ int main(int argc, char **argv)
     std::string data_type, dist_fn, index_path_prefix, disk_file_path, mem_index_path;
     uint32_t num_threads, beamwidth, num_nodes_to_cache, mem_L, query_dim, port;
     float    use_ratio;
+    float    et_theta;
+    uint32_t et_min_rounds;
 
     po::options_description desc("Starling search_server options");
     try
@@ -389,6 +403,12 @@ int main(int argc, char **argv)
         desc.add_options()("use_ratio",
             po::value<float>(&use_ratio)->default_value(1.0f),
             "Fraction of page_search candidates to use [0,1]");
+        desc.add_options()("et_theta_exact",
+            po::value<float>(&et_theta)->default_value(0.0f),
+            "CA-ET threshold (0 = disabled; unmodified Starling behaviour)");
+        desc.add_options()("et_min_rounds",
+            po::value<uint32_t>(&et_min_rounds)->default_value(0),
+            "CA-ET grace period in rounds before the stopping test may fire");
 
         po::variables_map vm;
         po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -421,13 +441,13 @@ int main(int argc, char **argv)
     {
         if (data_type == "float")
             return run_search_server<float>(index_path_prefix, disk_file_path, mem_index_path,
-                metric, num_nodes_to_cache, num_threads, beamwidth, mem_L, use_ratio, query_dim, port);
+                metric, num_nodes_to_cache, num_threads, beamwidth, mem_L, use_ratio, et_theta, et_min_rounds, query_dim, port);
         else if (data_type == "int8")
             return run_search_server<int8_t>(index_path_prefix, disk_file_path, mem_index_path,
-                metric, num_nodes_to_cache, num_threads, beamwidth, mem_L, use_ratio, query_dim, port);
+                metric, num_nodes_to_cache, num_threads, beamwidth, mem_L, use_ratio, et_theta, et_min_rounds, query_dim, port);
         else if (data_type == "uint8")
             return run_search_server<uint8_t>(index_path_prefix, disk_file_path, mem_index_path,
-                metric, num_nodes_to_cache, num_threads, beamwidth, mem_L, use_ratio, query_dim, port);
+                metric, num_nodes_to_cache, num_threads, beamwidth, mem_L, use_ratio, et_theta, et_min_rounds, query_dim, port);
         else
         { std::cerr << "Unsupported data type. Use float, int8, or uint8." << std::endl; return -1; }
     }
