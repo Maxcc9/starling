@@ -66,6 +66,9 @@ static_assert(sizeof(ResponseHeader) == 12, "Unexpected response header size");
 // we accumulate it here and expose it via the report_io control message (l==3/4),
 // mirroring the DiskANN search_server protocol so pareto_client works unchanged.
 std::atomic<uint64_t> g_io_count{0};
+// 跨系統 dependent-round 分解用:累計 stats.n_hops(frontier 非空的輪數)。
+// 與 DiskANN 的 _global_hop_count 語意相同,可直接比較。
+std::atomic<uint64_t> g_hop_count{0};
 
 bool recv_all(int fd, void *buffer, size_t length)
 {
@@ -249,7 +252,12 @@ class SearchServer
             if (request.l == 3)
                 ctl_ret = g_io_count.load(std::memory_order_relaxed);
             else if (request.l == 4)
+            {
                 g_io_count.store(0, std::memory_order_relaxed);
+                g_hop_count.store(0, std::memory_order_relaxed);
+            }
+            else if (request.l == 7)
+                ctl_ret = g_hop_count.load(std::memory_order_relaxed);
             ResponseHeader control_resp{request.query_id, ctl_ret};
             send_all(fd, &control_resp, sizeof(control_resp));
             return;
@@ -289,6 +297,7 @@ class SearchServer
                                  _use_ratio,
                                  /*stats=*/&stats);
             g_io_count.fetch_add(static_cast<uint64_t>(stats.n_ios), std::memory_order_relaxed);
+            g_hop_count.fetch_add(static_cast<uint64_t>(stats.n_hops), std::memory_order_relaxed);
         }
         else
         {
